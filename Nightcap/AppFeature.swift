@@ -1,4 +1,3 @@
-import AppKit
 import ComposableArchitecture
 import Foundation
 import Sharing
@@ -13,72 +12,11 @@ struct AppFeature {
         var runningAppCandidates: [WatchedApp] = []
         var launchAtLoginStatus: LaunchAtLoginStatus = .unknown
         var manualSession: ManualSession?
+        var manualSessionRevision = 0
         var assertionHeld = false
     }
 
-    enum ManualSession: Equatable {
-        case finite(ManualSessionDuration)
-        case indefinite
-
-        var statusText: String {
-            switch self {
-            case let .finite(duration):
-                "Manual: \(duration.title)"
-            case .indefinite:
-                "Manual: Until turned off"
-            }
-        }
-
-        var assertionReason: String {
-            switch self {
-            case let .finite(duration):
-                "Manual keep awake (\(duration.shortTitle))"
-            case .indefinite:
-                "Manual keep awake"
-            }
-        }
-    }
-
-    enum ManualSessionDuration: Equatable, CaseIterable {
-        case minutes15
-        case hour1
-        case indefinite
-
-        var title: String {
-            switch self {
-            case .minutes15:
-                "15 min"
-            case .hour1:
-                "1 hour"
-            case .indefinite:
-                "Until turned off"
-            }
-        }
-
-        var shortTitle: String {
-            switch self {
-            case .minutes15:
-                "15 min"
-            case .hour1:
-                "1 hour"
-            case .indefinite:
-                "until turned off"
-            }
-        }
-
-        var finiteDuration: Duration? {
-            switch self {
-            case .minutes15:
-                .seconds(15 * 60)
-            case .hour1:
-                .seconds(60 * 60)
-            case .indefinite:
-                nil
-            }
-        }
-    }
-
-    enum Action {
+    enum Action: Equatable {
         case onAppear
         case lifecycleEvent(AppLifecycleClient.Event)
         case reconcile
@@ -88,13 +26,13 @@ struct AppFeature {
         case observationToggled(WatchedApp.ID, Bool)
         case manualSessionStarted(ManualSessionDuration)
         case manualSessionStopped
-        case manualSessionExpired
+        case manualSessionExpired(Int)
         case launchAtLoginToggled(Bool)
         case launchAtLoginStatusUpdated(LaunchAtLoginStatus)
         case quitTapped
     }
 
-    private enum CancelID { case lifecycle, launchAtLogin, manualSession }
+    enum CancelID { case lifecycle, launchAtLogin, manualSession }
 
     @Dependency(\.appLifecycleClient) var lifecycle
     @Dependency(\.powerAssertionClient) var assertion
@@ -106,164 +44,45 @@ struct AppFeature {
         Reduce { state, action in
             switch action {
             case .onAppear:
-                state.launchAtLoginStatus = launchAtLogin.status()
-                reconcileRunning(&state)
-                refreshRunningAppCandidates(&state)
-                return .run { send in
-                    for await event in lifecycle.events() {
-                        await send(.lifecycleEvent(event))
-                    }
-                }
-                .cancellable(id: CancelID.lifecycle, cancelInFlight: true)
+                return handleOnAppear(state: &state)
 
-            case let .lifecycleEvent(.launched(id)):
-                refreshRunningAppCandidates(&state)
-                guard state.watchedApps.contains(where: { $0.bundleID == id && $0.isObserved }) else { return .none }
-                state.runningWatchedIDs.insert(id)
-                syncAssertion(&state)
-                return .none
+            case let .lifecycleEvent(event):
+                return handleLifecycleEvent(event, state: &state)
 
-            case let .lifecycleEvent(.terminated(id)):
-                refreshRunningAppCandidates(&state)
-                guard state.runningWatchedIDs.contains(id) else { return .none }
-                if !lifecycle.runningBundleIDs().contains(id) {
-                    state.runningWatchedIDs.remove(id)
-                    syncAssertion(&state)
-                }
-                return .none
-
-            case .lifecycleEvent(.wake), .reconcile:
-                reconcileRunning(&state)
-                refreshRunningAppCandidates(&state)
-                return .none
+            case .reconcile:
+                return handleReconcile(state: &state)
 
             case .runningAppCandidatesRefreshRequested:
-                refreshRunningAppCandidates(&state)
-                return .none
+                return handleRunningAppCandidatesRefreshRequested(state: &state)
 
             case let .addAppRequested(app):
-                if !state.watchedApps.contains(where: { $0.bundleID == app.bundleID }) {
-                    state.$watchedApps.withLock { $0.append(app) }
-                }
-                if lifecycle.runningBundleIDs().contains(app.bundleID) {
-                    state.runningWatchedIDs.insert(app.bundleID)
-                    syncAssertion(&state)
-                }
-                return .none
+                return handleAddAppRequested(app, state: &state)
 
             case let .removeAppRequested(id):
-                state.$watchedApps.withLock { $0.removeAll { $0.bundleID == id } }
-                if state.runningWatchedIDs.remove(id) != nil {
-                    syncAssertion(&state)
-                }
-                return .none
+                return handleRemoveAppRequested(id, state: &state)
 
             case let .observationToggled(id, isObserved):
-                state.$watchedApps.withLock { apps in
-                    guard let index = apps.firstIndex(where: { $0.bundleID == id }) else { return }
-                    apps[index].isObserved = isObserved
-                }
-
-                if isObserved {
-                    if lifecycle.runningBundleIDs().contains(id) {
-                        state.runningWatchedIDs.insert(id)
-                    }
-                } else {
-                    state.runningWatchedIDs.remove(id)
-                }
-                syncAssertion(&state)
-                return .none
+                return handleObservationToggled(id, isObserved: isObserved, state: &state)
 
             case let .manualSessionStarted(duration):
-                if duration == .indefinite {
-                    state.manualSession = .indefinite
-                    syncAssertion(&state)
-                    return .cancel(id: CancelID.manualSession)
-                }
-
-                state.manualSession = .finite(duration)
-                syncAssertion(&state)
-                guard let finiteDuration = duration.finiteDuration else { return .none }
-                return .run { send in
-                    try await clock.sleep(for: finiteDuration)
-                    await send(.manualSessionExpired)
-                }
-                .cancellable(id: CancelID.manualSession, cancelInFlight: true)
+                return handleManualSessionStarted(duration, state: &state)
 
             case .manualSessionStopped:
-                state.manualSession = nil
-                syncAssertion(&state)
-                return .cancel(id: CancelID.manualSession)
+                return handleManualSessionStopped(state: &state)
 
-            case .manualSessionExpired:
-                state.manualSession = nil
-                syncAssertion(&state)
-                return .none
+            case let .manualSessionExpired(revision):
+                return handleManualSessionExpired(revision, state: &state)
 
             case let .launchAtLoginToggled(enable):
-                let previous = state.launchAtLoginStatus
-                state.launchAtLoginStatus = enable ? .enabled : .disabled
-                return .run { send in
-                    do {
-                        try launchAtLogin.setEnabled(enable)
-                        let actual = launchAtLogin.status()
-                        let resolved: LaunchAtLoginStatus
-                        switch actual {
-                        case .enabled, .disabled, .requiresApproval:
-                            resolved = actual
-                        case .unknown, .error:
-                            resolved = enable ? .enabled : .disabled
-                        }
-                        await send(.launchAtLoginStatusUpdated(resolved))
-                    } catch {
-                        await send(.launchAtLoginStatusUpdated(previous))
-                    }
-                }
-                .cancellable(id: CancelID.launchAtLogin, cancelInFlight: true)
+                return handleLaunchAtLoginToggled(enable, state: &state)
 
             case let .launchAtLoginStatusUpdated(status):
                 state.launchAtLoginStatus = status
                 return .none
 
             case .quitTapped:
-                assertion.release()
-                state.manualSession = nil
-                state.assertionHeld = false
-                quitter.quit()
-                return .cancel(id: CancelID.manualSession)
+                return handleQuitTapped(state: &state)
             }
         }
-    }
-
-    private func reconcileRunning(_ state: inout State) {
-        state.runningWatchedIDs = lifecycle.runningBundleIDs().intersection(observedIDs(in: state))
-        syncAssertion(&state)
-    }
-
-    private func observedIDs(in state: State) -> Set<String> {
-        Set(state.watchedApps.filter(\.isObserved).map(\.bundleID))
-    }
-
-    private func refreshRunningAppCandidates(_ state: inout State) {
-        state.runningAppCandidates = lifecycle.runningApps()
-    }
-
-    private func syncAssertion(_ state: inout State) {
-        let reasons = assertionReasons(in: state)
-        if reasons.isEmpty {
-            assertion.release()
-            state.assertionHeld = false
-        } else {
-            state.assertionHeld = assertion.acquire("Nightcap: \(reasons.joined(separator: ", "))")
-        }
-    }
-
-    private func assertionReasons(in state: State) -> [String] {
-        let appNames = state.watchedApps
-            .filter { state.runningWatchedIDs.contains($0.bundleID) }
-            .map(\.displayName)
-
-        guard let manualSession = state.manualSession else { return appNames }
-        return appNames + [manualSession.assertionReason]
     }
 }

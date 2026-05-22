@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct ManualSessionMenuSection: View {
-    let manualSession: AppFeature.ManualSession?
-    let onStart: (AppFeature.ManualSessionDuration) -> Void
+    let manualSession: ManualSession?
+    let onStart: (ManualSessionDuration) -> Void
     let onStop: () -> Void
 
     var body: some View {
@@ -25,7 +25,7 @@ struct ManualSessionMenuSection: View {
         return "Keep Awake: \(manualSessionLabel(for: manualSession))"
     }
 
-    private func manualSessionLabel(for session: AppFeature.ManualSession) -> String {
+    private func manualSessionLabel(for session: ManualSession) -> String {
         switch session {
         case let .finite(duration):
             duration.title
