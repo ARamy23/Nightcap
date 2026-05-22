@@ -23,11 +23,14 @@ quits, the assertion releases automatically and your Mac sleeps as configured.
 Unlike `caffeinate` or always-on solutions, Nightcap is **event-driven**: it
 holds a kernel-level power assertion only while watched apps are alive, and
 releases the moment they exit. Zero polling, zero battery overhead when idle.
+You can also start a temporary manual keep-awake session from the menu for
+15 minutes, 1 hour, or until you turn it off.
 
 ## How it works
 
 - Watches `NSWorkspace` launch/terminate notifications for your selected bundle IDs
 - Holds `kIOPMAssertionTypePreventUserIdleSystemSleep` via IOKit when any watched app is running
+- Holds the same assertion for temporary manual sessions, with automatic expiry
 - Reconciles state on system wake (handles forced kills, sleep/wake cycles)
 - Runs fully sandboxed — no privileged helpers, no shell scripts, no LaunchAgents
 - Persists your watched-app list to a local JSON file in the app container
@@ -71,7 +74,9 @@ menu bar — no Dock icon.
    your Mac won't sleep
 4. Choose **Pause Watching** to keep an app in your list without holding sleep,
    then **Resume Watching** when you want it active again
-5. Optionally enable **Launch at Login** to start Nightcap on boot
+5. Choose **Keep Awake** for a temporary manual session, then stop it from the
+   same menu when you are done
+6. Optionally enable **Launch at Login** to start Nightcap on boot
 
 Use a watched app's submenu to pause, resume, or remove it from the list.
 
@@ -91,10 +96,10 @@ xcodebuild test -project Nightcap.xcodeproj -scheme Nightcap \
   -destination 'platform=macOS,arch=arm64'
 ```
 
-14 unit tests cover launch/terminate/wake reconciliation, multi-instance
+18 unit tests cover launch/terminate/wake reconciliation, multi-instance
 termination, duplicate-add no-op, launch-at-login error rollback,
-pause/resume watching, running-app suggestions, legacy list migration, and quit
-releases the assertion.
+pause/resume watching, running-app suggestions, manual keep-awake sessions,
+legacy list migration, and quit releases the assertion.
 
 ## Privacy
 

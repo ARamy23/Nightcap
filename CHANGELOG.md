@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Add Running App menu for watching apps that are already open, with watched
   apps shown as disabled checkmarked rows.
+- Temporary manual keep-awake sessions for 15 minutes, 1 hour, or until turned
+  off, including automatic expiry and menu status.
 
 ## [1.0] - 2026-05-14
 

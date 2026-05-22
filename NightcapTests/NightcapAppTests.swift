@@ -240,6 +240,102 @@ final class NightcapAppTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(env.released.value, 1)
     }
 
+    func test_finite_manual_session_acquires_without_running_apps() async {
+        let clock = TestClock()
+        let env = makeEnv(running: [])
+        let store = makeStore(env: env, clock: clock)
+
+        await store.send(.onAppear) {
+            $0.launchAtLoginStatus = .disabled
+        }
+
+        await store.send(.manualSessionStarted(.minutes15)) {
+            $0.manualSession = .finite(.minutes15)
+            $0.assertionHeld = true
+        }
+
+        XCTAssertEqual(env.acquired.value, ["Nightcap: Manual keep awake (15 min)"])
+
+        await store.send(.manualSessionStopped) {
+            $0.manualSession = nil
+            $0.assertionHeld = false
+        }
+    }
+
+    func test_indefinite_manual_session_acquires_until_stopped() async {
+        let env = makeEnv(running: [])
+        let store = makeStore(env: env)
+
+        await store.send(.onAppear) {
+            $0.launchAtLoginStatus = .disabled
+        }
+
+        await store.send(.manualSessionStarted(.indefinite)) {
+            $0.manualSession = .indefinite
+            $0.assertionHeld = true
+        }
+
+        await store.send(.manualSessionStopped) {
+            $0.manualSession = nil
+            $0.assertionHeld = false
+        }
+
+        XCTAssertEqual(env.acquired.value, ["Nightcap: Manual keep awake"])
+        XCTAssertGreaterThanOrEqual(env.released.value, 1)
+    }
+
+    func test_finite_manual_session_expires_and_releases() async {
+        let clock = TestClock()
+        let env = makeEnv(running: [])
+        let store = makeStore(env: env, clock: clock)
+
+        await store.send(.onAppear) {
+            $0.launchAtLoginStatus = .disabled
+        }
+
+        await store.send(.manualSessionStarted(.minutes15)) {
+            $0.manualSession = .finite(.minutes15)
+            $0.assertionHeld = true
+        }
+
+        await clock.advance(by: .seconds(15 * 60))
+
+        await store.receive(\.manualSessionExpired) {
+            $0.manualSession = nil
+            $0.assertionHeld = false
+        }
+
+        XCTAssertGreaterThanOrEqual(env.released.value, 1)
+    }
+
+    func test_manual_session_expiration_keeps_assertion_for_running_watched_app() async {
+        let clock = TestClock()
+        let env = makeEnv(running: ["com.mitchellh.ghostty"])
+        let store = makeStore(env: env, clock: clock)
+
+        await store.send(.onAppear) {
+            $0.runningWatchedIDs = ["com.mitchellh.ghostty"]
+            $0.assertionHeld = true
+            $0.launchAtLoginStatus = .disabled
+        }
+
+        await store.send(.manualSessionStarted(.minutes15)) {
+            $0.manualSession = .finite(.minutes15)
+        }
+
+        await clock.advance(by: .seconds(15 * 60))
+
+        await store.receive(\.manualSessionExpired) {
+            $0.manualSession = nil
+        }
+
+        env.running.setValue([])
+        await store.send(.lifecycleEvent(.terminated(bundleID: "com.mitchellh.ghostty"))) {
+            $0.runningWatchedIDs = []
+            $0.assertionHeld = false
+        }
+    }
+
     // MARK: - Helpers
 
     private enum TestError: Error { case simulated }
@@ -265,7 +361,8 @@ final class NightcapAppTests: XCTestCase {
 
     private func makeStore(
         env: TestEnv,
-        acquireReturns: Bool = true
+        acquireReturns: Bool = true,
+        clock: TestClock<Duration>? = nil
     ) -> TestStore<AppFeature.State, AppFeature.Action> {
         TestStore(initialState: AppFeature.State()) {
             AppFeature()
@@ -280,6 +377,9 @@ final class NightcapAppTests: XCTestCase {
             }
             $0.powerAssertionClient.release = {
                 env.released.withValue { $0 += 1 }
+            }
+            if let clock {
+                $0.continuousClock = clock
             }
         }
     }

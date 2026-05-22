@@ -8,7 +8,20 @@ struct MenuContentView: View {
     var body: some View {
         MenuStatusSection(
             assertionHeld: store.assertionHeld,
-            activeAppCount: store.runningWatchedIDs.count
+            activeAppCount: store.runningWatchedIDs.count,
+            manualSession: store.manualSession
+        )
+
+        Divider()
+
+        ManualSessionMenuSection(
+            manualSession: store.manualSession,
+            onStart: { duration in
+                store.send(.manualSessionStarted(duration))
+            },
+            onStop: {
+                store.send(.manualSessionStopped)
+            }
         )
 
         Divider()
