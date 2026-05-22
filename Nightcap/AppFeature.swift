@@ -10,6 +10,7 @@ struct AppFeature {
         @Shared(.fileStorage(.documentsDirectory.appending(component: "watched-apps.json")))
         var watchedApps: [WatchedApp] = [.ghostty]
         var runningWatchedIDs: Set<String> = []
+        var runningAppCandidates: [WatchedApp] = []
         var launchAtLoginStatus: LaunchAtLoginStatus = .unknown
         var assertionHeld = false
     }
@@ -18,6 +19,7 @@ struct AppFeature {
         case onAppear
         case lifecycleEvent(AppLifecycleClient.Event)
         case reconcile
+        case runningAppCandidatesRefreshRequested
         case addAppRequested(WatchedApp)
         case removeAppRequested(WatchedApp.ID)
         case observationToggled(WatchedApp.ID, Bool)
@@ -39,6 +41,7 @@ struct AppFeature {
             case .onAppear:
                 state.launchAtLoginStatus = launchAtLogin.status()
                 reconcileRunning(&state)
+                refreshRunningAppCandidates(&state)
                 return .run { send in
                     for await event in lifecycle.events() {
                         await send(.lifecycleEvent(event))
@@ -47,12 +50,14 @@ struct AppFeature {
                 .cancellable(id: CancelID.lifecycle, cancelInFlight: true)
 
             case let .lifecycleEvent(.launched(id)):
+                refreshRunningAppCandidates(&state)
                 guard state.watchedApps.contains(where: { $0.bundleID == id && $0.isObserved }) else { return .none }
                 state.runningWatchedIDs.insert(id)
                 syncAssertion(&state)
                 return .none
 
             case let .lifecycleEvent(.terminated(id)):
+                refreshRunningAppCandidates(&state)
                 guard state.runningWatchedIDs.contains(id) else { return .none }
                 if !lifecycle.runningBundleIDs().contains(id) {
                     state.runningWatchedIDs.remove(id)
@@ -62,6 +67,11 @@ struct AppFeature {
 
             case .lifecycleEvent(.wake), .reconcile:
                 reconcileRunning(&state)
+                refreshRunningAppCandidates(&state)
+                return .none
+
+            case .runningAppCandidatesRefreshRequested:
+                refreshRunningAppCandidates(&state)
                 return .none
 
             case let .addAppRequested(app):
@@ -138,6 +148,10 @@ struct AppFeature {
 
     private func observedIDs(in state: State) -> Set<String> {
         Set(state.watchedApps.filter(\.isObserved).map(\.bundleID))
+    }
+
+    private func refreshRunningAppCandidates(_ state: inout State) {
+        state.runningAppCandidates = lifecycle.runningApps()
     }
 
     private func syncAssertion(_ state: inout State) {

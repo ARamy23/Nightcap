@@ -75,6 +75,52 @@ final class NightcapAppTests: XCTestCase {
         }
     }
 
+    func test_on_appear_loads_running_app_candidates() async {
+        let xcode = WatchedApp(bundleID: "com.apple.dt.Xcode", displayName: "Xcode")
+        let zoom = WatchedApp(bundleID: "us.zoom.xos", displayName: "zoom.us")
+        let env = makeEnv(running: [], runningApps: [xcode, zoom])
+        let store = makeStore(env: env)
+
+        await store.send(.onAppear) {
+            $0.launchAtLoginStatus = .disabled
+            $0.runningAppCandidates = [xcode, zoom]
+        }
+    }
+
+    func test_launch_event_for_unwatched_app_refreshes_running_app_candidates() async {
+        let xcode = WatchedApp(bundleID: "com.apple.dt.Xcode", displayName: "Xcode")
+        let env = makeEnv(running: [], runningApps: [])
+        let store = makeStore(env: env)
+
+        await store.send(.onAppear) {
+            $0.launchAtLoginStatus = .disabled
+        }
+
+        env.runningApps.setValue([xcode])
+        await store.send(.lifecycleEvent(.launched(bundleID: xcode.bundleID))) {
+            $0.runningAppCandidates = [xcode]
+        }
+    }
+
+    func test_adding_running_app_uses_existing_watch_flow() async {
+        let xcode = WatchedApp(bundleID: "com.apple.dt.Xcode", displayName: "Xcode")
+        let env = makeEnv(running: [xcode.bundleID], runningApps: [xcode])
+        let store = makeStore(env: env)
+
+        await store.send(.onAppear) {
+            $0.runningAppCandidates = [xcode]
+            $0.launchAtLoginStatus = .disabled
+        }
+
+        await store.send(.addAppRequested(xcode)) {
+            $0.$watchedApps.withLock { $0.append(xcode) }
+            $0.runningWatchedIDs = [xcode.bundleID]
+            $0.assertionHeld = true
+        }
+
+        XCTAssertEqual(env.acquired.value, ["Nightcap: Xcode"])
+    }
+
     func test_duplicate_add_is_a_no_op() async {
         let env = makeEnv(running: [])
         let store = makeStore(env: env)
@@ -161,6 +207,7 @@ final class NightcapAppTests: XCTestCase {
             AppFeature()
         } withDependencies: {
             $0.appLifecycleClient.runningBundleIDs = { [] }
+            $0.appLifecycleClient.runningApps = { [] }
             $0.appLifecycleClient.events = { .finished }
             $0.launchAtLoginClient.status = { .disabled }
             $0.launchAtLoginClient.setEnabled = { _ in throw TestError.simulated }
@@ -199,13 +246,18 @@ final class NightcapAppTests: XCTestCase {
 
     private struct TestEnv {
         let running: LockIsolated<Set<String>>
+        let runningApps: LockIsolated<[WatchedApp]>
         let acquired: LockIsolated<[String]>
         let released: LockIsolated<Int>
     }
 
-    private func makeEnv(running: Set<String>) -> TestEnv {
+    private func makeEnv(
+        running: Set<String>,
+        runningApps: [WatchedApp] = []
+    ) -> TestEnv {
         TestEnv(
             running: LockIsolated(running),
+            runningApps: LockIsolated(runningApps),
             acquired: LockIsolated([]),
             released: LockIsolated(0)
         )
@@ -219,6 +271,7 @@ final class NightcapAppTests: XCTestCase {
             AppFeature()
         } withDependencies: {
             $0.appLifecycleClient.runningBundleIDs = { env.running.value }
+            $0.appLifecycleClient.runningApps = { env.runningApps.value }
             $0.appLifecycleClient.events = { .finished }
             $0.launchAtLoginClient.status = { .disabled }
             $0.powerAssertionClient.acquire = { reason in

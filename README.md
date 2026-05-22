@@ -65,7 +65,8 @@ menu bar — no Dock icon.
 ## Usage
 
 1. Click the cup icon in your menu bar
-2. Click **Add App…**, pick the app you want to watch (e.g. Ghostty)
+2. Choose **Add Running App** for an app that's already open, or click
+   **Add App…** to pick one from disk (e.g. Ghostty)
 3. While that app is running, the icon switches to the filled-cup state and
    your Mac won't sleep
 4. Choose **Pause Watching** to keep an app in your list without holding sleep,
@@ -90,9 +91,10 @@ xcodebuild test -project Nightcap.xcodeproj -scheme Nightcap \
   -destination 'platform=macOS,arch=arm64'
 ```
 
-11 unit tests cover launch/terminate/wake reconciliation, multi-instance
+14 unit tests cover launch/terminate/wake reconciliation, multi-instance
 termination, duplicate-add no-op, launch-at-login error rollback,
-pause/resume watching, legacy list migration, and quit releases the assertion.
+pause/resume watching, running-app suggestions, legacy list migration, and quit
+releases the assertion.
 
 ## Privacy
 
