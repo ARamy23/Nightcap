@@ -6,6 +6,7 @@
   [![CI](https://github.com/Abdo-codes/Nightcap/actions/workflows/ci.yml/badge.svg)](https://github.com/Abdo-codes/Nightcap/actions/workflows/ci.yml)
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
   [![macOS 14+](https://img.shields.io/badge/macOS-14.0%2B-blue.svg)](#requirements)
+  [![Mac App Store](https://img.shields.io/badge/Mac%20App%20Store-Nightcap%20Awake-0D96F6?logo=apple&logoColor=white)](https://apps.apple.com/nl/app/nightcap-awake/id6769450957?l=en-GB&mt=12)
 
   <img src="Marketing/AppStore/screenshots-final/03-awake-then-sleep.png" alt="Nightcap keeps your Mac awake while watched apps run, then allows sleep when they quit" width="900" />
 </div>
@@ -38,7 +39,7 @@ releases the moment they exit. Zero polling, zero battery overhead when idle.
 
 ## Install
 
-**Mac App Store** — coming soon.
+**Mac App Store**: [Nightcap Awake](https://apps.apple.com/nl/app/nightcap-awake/id6769450957?l=en-GB&mt=12) is free to download.
 
 **Homebrew**:
 
