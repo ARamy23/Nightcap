@@ -5,6 +5,7 @@ import DependenciesMacros
 @DependencyClient
 struct AppLifecycleClient: Sendable {
     var runningBundleIDs: @Sendable () -> Set<String> = { [] }
+    var runningApps: @Sendable () -> [WatchedApp] = { [] }
     var events: @Sendable () -> AsyncStream<Event> = { .finished }
 
     enum Event: Sendable, Equatable {
@@ -18,6 +19,26 @@ extension AppLifecycleClient: DependencyKey {
     static let liveValue: AppLifecycleClient = .init(
         runningBundleIDs: {
             Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+        },
+        runningApps: {
+            let ownBundleID = Bundle.main.bundleIdentifier
+            let apps = NSWorkspace.shared.runningApplications.compactMap { app -> WatchedApp? in
+                guard
+                    app.activationPolicy == .regular,
+                    let bundleID = app.bundleIdentifier,
+                    bundleID != ownBundleID,
+                    let displayName = app.localizedName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                    !displayName.isEmpty
+                else { return nil }
+
+                return WatchedApp(bundleID: bundleID, displayName: displayName)
+            }
+
+            return Dictionary(grouping: apps, by: \.bundleID)
+                .compactMap { $0.value.first }
+                .sorted {
+                    $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+                }
         },
         events: {
             AsyncStream { continuation in
