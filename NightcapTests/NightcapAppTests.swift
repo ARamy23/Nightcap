@@ -6,6 +6,10 @@ import XCTest
 
 @MainActor
 final class NightcapAppTests: XCTestCase {
+    func test_first_run_starts_with_empty_watched_app_list() {
+        XCTAssertEqual(AppFeature.State().watchedApps, [])
+    }
+
     func test_launched_event_for_watched_app_triggers_acquire() async {
         let env = makeEnv(running: [])
         let store = makeStore(env: env)
@@ -362,9 +366,13 @@ final class NightcapAppTests: XCTestCase {
     private func makeStore(
         env: TestEnv,
         acquireReturns: Bool = true,
+        watchedApps: [WatchedApp] = [.ghostty],
         clock: TestClock<Duration>? = nil
     ) -> TestStore<AppFeature.State, AppFeature.Action> {
-        TestStore(initialState: AppFeature.State()) {
+        let state = AppFeature.State()
+        state.$watchedApps.withLock { $0 = watchedApps }
+
+        return TestStore(initialState: state) {
             AppFeature()
         } withDependencies: {
             $0.appLifecycleClient.runningBundleIDs = { env.running.value }
