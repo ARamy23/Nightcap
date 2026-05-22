@@ -3,7 +3,7 @@ import SwiftUI
 struct MenuStatusSection: View {
     let assertionHeld: Bool
     let activeAppCount: Int
-    let manualSession: AppFeature.ManualSession?
+    let manualSession: ManualSession?
 
     var body: some View {
         if assertionHeld {
