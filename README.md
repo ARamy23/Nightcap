@@ -91,8 +91,8 @@ xcodebuild test -project Nightcap.xcodeproj -scheme Nightcap \
   -destination 'platform=macOS,arch=arm64'
 ```
 
-14 unit tests cover launch/terminate/wake reconciliation, multi-instance
-termination, duplicate-add no-op, launch-at-login error rollback,
+15 unit tests cover empty first-run state, launch/terminate/wake reconciliation,
+multi-instance termination, duplicate-add no-op, launch-at-login error rollback,
 pause/resume watching, running-app suggestions, legacy list migration, and quit
 releases the assertion.
 
