@@ -6,6 +6,7 @@ extension AppFeature {
         _ duration: ManualSessionDuration,
         state: inout State
     ) -> Effect<Action> {
+        let revision = nextManualSessionRevision(&state)
         if duration == .indefinite {
             state.manualSession = .indefinite
             syncAssertion(&state)
@@ -18,20 +19,35 @@ extension AppFeature {
 
         return .run { send in
             try await clock.sleep(for: finiteDuration)
-            await send(.manualSessionExpired)
+            await send(.manualSessionExpired(revision))
         }
         .cancellable(id: CancelID.manualSession, cancelInFlight: true)
     }
 
     func handleManualSessionStopped(state: inout State) -> Effect<Action> {
+        _ = nextManualSessionRevision(&state)
         state.manualSession = nil
         syncAssertion(&state)
         return .cancel(id: CancelID.manualSession)
     }
 
-    func handleManualSessionExpired(state: inout State) -> Effect<Action> {
+    func handleManualSessionExpired(
+        _ revision: Int,
+        state: inout State
+    ) -> Effect<Action> {
+        guard
+            state.manualSessionRevision == revision,
+            case .finite = state.manualSession
+        else { return .none }
+
+        _ = nextManualSessionRevision(&state)
         state.manualSession = nil
         syncAssertion(&state)
         return .none
+    }
+
+    private func nextManualSessionRevision(_ state: inout State) -> Int {
+        state.manualSessionRevision += 1
+        return state.manualSessionRevision
     }
 }

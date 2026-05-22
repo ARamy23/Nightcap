@@ -12,10 +12,11 @@ struct AppFeature {
         var runningAppCandidates: [WatchedApp] = []
         var launchAtLoginStatus: LaunchAtLoginStatus = .unknown
         var manualSession: ManualSession?
+        var manualSessionRevision = 0
         var assertionHeld = false
     }
 
-    enum Action {
+    enum Action: Equatable {
         case onAppear
         case lifecycleEvent(AppLifecycleClient.Event)
         case reconcile
@@ -25,7 +26,7 @@ struct AppFeature {
         case observationToggled(WatchedApp.ID, Bool)
         case manualSessionStarted(ManualSessionDuration)
         case manualSessionStopped
-        case manualSessionExpired
+        case manualSessionExpired(Int)
         case launchAtLoginToggled(Bool)
         case launchAtLoginStatusUpdated(LaunchAtLoginStatus)
         case quitTapped
@@ -69,8 +70,8 @@ struct AppFeature {
             case .manualSessionStopped:
                 return handleManualSessionStopped(state: &state)
 
-            case .manualSessionExpired:
-                return handleManualSessionExpired(state: &state)
+            case let .manualSessionExpired(revision):
+                return handleManualSessionExpired(revision, state: &state)
 
             case let .launchAtLoginToggled(enable):
                 return handleLaunchAtLoginToggled(enable, state: &state)

@@ -255,6 +255,7 @@ final class NightcapAppTests: XCTestCase {
 
         await store.send(.manualSessionStarted(.minutes15)) {
             $0.manualSession = .finite(.minutes15)
+            $0.manualSessionRevision = 1
             $0.assertionHeld = true
         }
 
@@ -262,6 +263,7 @@ final class NightcapAppTests: XCTestCase {
 
         await store.send(.manualSessionStopped) {
             $0.manualSession = nil
+            $0.manualSessionRevision = 2
             $0.assertionHeld = false
         }
     }
@@ -276,11 +278,13 @@ final class NightcapAppTests: XCTestCase {
 
         await store.send(.manualSessionStarted(.indefinite)) {
             $0.manualSession = .indefinite
+            $0.manualSessionRevision = 1
             $0.assertionHeld = true
         }
 
         await store.send(.manualSessionStopped) {
             $0.manualSession = nil
+            $0.manualSessionRevision = 2
             $0.assertionHeld = false
         }
 
@@ -299,13 +303,15 @@ final class NightcapAppTests: XCTestCase {
 
         await store.send(.manualSessionStarted(.minutes15)) {
             $0.manualSession = .finite(.minutes15)
+            $0.manualSessionRevision = 1
             $0.assertionHeld = true
         }
 
         await clock.advance(by: .seconds(15 * 60))
 
-        await store.receive(\.manualSessionExpired) {
+        await store.receive(.manualSessionExpired(1)) {
             $0.manualSession = nil
+            $0.manualSessionRevision = 2
             $0.assertionHeld = false
         }
 
@@ -325,12 +331,14 @@ final class NightcapAppTests: XCTestCase {
 
         await store.send(.manualSessionStarted(.minutes15)) {
             $0.manualSession = .finite(.minutes15)
+            $0.manualSessionRevision = 1
         }
 
         await clock.advance(by: .seconds(15 * 60))
 
-        await store.receive(\.manualSessionExpired) {
+        await store.receive(.manualSessionExpired(1)) {
             $0.manualSession = nil
+            $0.manualSessionRevision = 2
         }
 
         env.running.setValue([])
@@ -338,6 +346,39 @@ final class NightcapAppTests: XCTestCase {
             $0.runningWatchedIDs = []
             $0.assertionHeld = false
         }
+    }
+
+    func test_stale_manual_session_expiry_does_not_clear_newer_session() async {
+        let clock = TestClock()
+        let env = makeEnv(running: [])
+        let store = makeStore(env: env, clock: clock)
+
+        await store.send(.onAppear) {
+            $0.launchAtLoginStatus = .disabled
+        }
+
+        await store.send(.manualSessionStarted(.minutes15)) {
+            $0.manualSession = .finite(.minutes15)
+            $0.manualSessionRevision = 1
+            $0.assertionHeld = true
+        }
+
+        await store.send(.manualSessionStarted(.indefinite)) {
+            $0.manualSession = .indefinite
+            $0.manualSessionRevision = 2
+        }
+
+        let releasesBeforeStaleExpiry = env.released.value
+        await store.send(.manualSessionExpired(1))
+
+        XCTAssertEqual(
+            env.acquired.value,
+            [
+                "Nightcap: Manual keep awake (15 min)",
+                "Nightcap: Manual keep awake",
+            ]
+        )
+        XCTAssertEqual(env.released.value, releasesBeforeStaleExpiry)
     }
 
     // MARK: - Helpers
