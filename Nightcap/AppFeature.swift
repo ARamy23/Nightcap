@@ -12,7 +12,70 @@ struct AppFeature {
         var runningWatchedIDs: Set<String> = []
         var runningAppCandidates: [WatchedApp] = []
         var launchAtLoginStatus: LaunchAtLoginStatus = .unknown
+        var manualSession: ManualSession?
         var assertionHeld = false
+    }
+
+    enum ManualSession: Equatable {
+        case finite(ManualSessionDuration)
+        case indefinite
+
+        var statusText: String {
+            switch self {
+            case let .finite(duration):
+                "Manual: \(duration.title)"
+            case .indefinite:
+                "Manual: Until turned off"
+            }
+        }
+
+        var assertionReason: String {
+            switch self {
+            case let .finite(duration):
+                "Manual keep awake (\(duration.shortTitle))"
+            case .indefinite:
+                "Manual keep awake"
+            }
+        }
+    }
+
+    enum ManualSessionDuration: Equatable, CaseIterable {
+        case minutes15
+        case hour1
+        case indefinite
+
+        var title: String {
+            switch self {
+            case .minutes15:
+                "15 min"
+            case .hour1:
+                "1 hour"
+            case .indefinite:
+                "Until turned off"
+            }
+        }
+
+        var shortTitle: String {
+            switch self {
+            case .minutes15:
+                "15 min"
+            case .hour1:
+                "1 hour"
+            case .indefinite:
+                "until turned off"
+            }
+        }
+
+        var finiteDuration: Duration? {
+            switch self {
+            case .minutes15:
+                .seconds(15 * 60)
+            case .hour1:
+                .seconds(60 * 60)
+            case .indefinite:
+                nil
+            }
+        }
     }
 
     enum Action {
@@ -23,17 +86,21 @@ struct AppFeature {
         case addAppRequested(WatchedApp)
         case removeAppRequested(WatchedApp.ID)
         case observationToggled(WatchedApp.ID, Bool)
+        case manualSessionStarted(ManualSessionDuration)
+        case manualSessionStopped
+        case manualSessionExpired
         case launchAtLoginToggled(Bool)
         case launchAtLoginStatusUpdated(LaunchAtLoginStatus)
         case quitTapped
     }
 
-    private enum CancelID { case lifecycle, launchAtLogin }
+    private enum CancelID { case lifecycle, launchAtLogin, manualSession }
 
     @Dependency(\.appLifecycleClient) var lifecycle
     @Dependency(\.powerAssertionClient) var assertion
     @Dependency(\.launchAtLoginClient) var launchAtLogin
     @Dependency(\.appQuitterClient) var quitter
+    @Dependency(\.continuousClock) var clock
 
     var body: some ReducerOf<Self> {
         Reduce { state, action in
@@ -107,6 +174,32 @@ struct AppFeature {
                 syncAssertion(&state)
                 return .none
 
+            case let .manualSessionStarted(duration):
+                if duration == .indefinite {
+                    state.manualSession = .indefinite
+                    syncAssertion(&state)
+                    return .cancel(id: CancelID.manualSession)
+                }
+
+                state.manualSession = .finite(duration)
+                syncAssertion(&state)
+                guard let finiteDuration = duration.finiteDuration else { return .none }
+                return .run { send in
+                    try await clock.sleep(for: finiteDuration)
+                    await send(.manualSessionExpired)
+                }
+                .cancellable(id: CancelID.manualSession, cancelInFlight: true)
+
+            case .manualSessionStopped:
+                state.manualSession = nil
+                syncAssertion(&state)
+                return .cancel(id: CancelID.manualSession)
+
+            case .manualSessionExpired:
+                state.manualSession = nil
+                syncAssertion(&state)
+                return .none
+
             case let .launchAtLoginToggled(enable):
                 let previous = state.launchAtLoginStatus
                 state.launchAtLoginStatus = enable ? .enabled : .disabled
@@ -134,9 +227,10 @@ struct AppFeature {
 
             case .quitTapped:
                 assertion.release()
+                state.manualSession = nil
                 state.assertionHeld = false
                 quitter.quit()
-                return .none
+                return .cancel(id: CancelID.manualSession)
             }
         }
     }
@@ -155,15 +249,21 @@ struct AppFeature {
     }
 
     private func syncAssertion(_ state: inout State) {
-        if state.runningWatchedIDs.isEmpty {
+        let reasons = assertionReasons(in: state)
+        if reasons.isEmpty {
             assertion.release()
             state.assertionHeld = false
         } else {
-            let names = state.watchedApps
-                .filter { state.runningWatchedIDs.contains($0.bundleID) }
-                .map(\.displayName)
-                .joined(separator: ", ")
-            state.assertionHeld = assertion.acquire("Nightcap: \(names)")
+            state.assertionHeld = assertion.acquire("Nightcap: \(reasons.joined(separator: ", "))")
         }
+    }
+
+    private func assertionReasons(in state: State) -> [String] {
+        let appNames = state.watchedApps
+            .filter { state.runningWatchedIDs.contains($0.bundleID) }
+            .map(\.displayName)
+
+        guard let manualSession = state.manualSession else { return appNames }
+        return appNames + [manualSession.assertionReason]
     }
 }

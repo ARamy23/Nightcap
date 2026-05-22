@@ -120,6 +120,8 @@ targets:
         product: Sharing
       - package: swift-concurrency-extras
         product: ConcurrencyExtras
+      - package: swift-clocks
+        product: Clocks
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
