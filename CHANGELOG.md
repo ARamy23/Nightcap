@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add Running App menu for watching apps that are already open, with watched
   apps shown as disabled checkmarked rows.
 
+### Changed
+- Fresh installs now start with an empty watched-app list instead of a sample
+  Ghostty entry.
+
 ## [1.0] - 2026-05-14
 
 ### Added

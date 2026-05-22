@@ -8,7 +8,7 @@ struct AppFeature {
     @ObservableState
     struct State: Equatable {
         @Shared(.fileStorage(.documentsDirectory.appending(component: "watched-apps.json")))
-        var watchedApps: [WatchedApp] = [.ghostty]
+        var watchedApps: [WatchedApp] = []
         var runningWatchedIDs: Set<String> = []
         var runningAppCandidates: [WatchedApp] = []
         var launchAtLoginStatus: LaunchAtLoginStatus = .unknown
