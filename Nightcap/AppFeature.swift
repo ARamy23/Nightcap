@@ -34,6 +34,7 @@ struct AppFeature {
     @Dependency(\.powerAssertionClient) var assertion
     @Dependency(\.launchAtLoginClient) var launchAtLogin
     @Dependency(\.appQuitterClient) var quitter
+    @Dependency(\.reviewPromptClient) var reviewPrompt
 
     var body: some ReducerOf<Self> {
         Reduce { state, action in
@@ -75,14 +76,15 @@ struct AppFeature {
                 return .none
 
             case let .addAppRequested(app):
-                if !state.watchedApps.contains(where: { $0.bundleID == app.bundleID }) {
-                    state.$watchedApps.withLock { $0.append(app) }
-                }
+                guard !state.watchedApps.contains(where: { $0.bundleID == app.bundleID }) else { return .none }
+                state.$watchedApps.withLock { $0.append(app) }
                 if lifecycle.runningBundleIDs().contains(app.bundleID) {
                     state.runningWatchedIDs.insert(app.bundleID)
                     syncAssertion(&state)
                 }
-                return .none
+                return .run { _ in
+                    reviewPrompt.requestIfAppropriate()
+                }
 
             case let .removeAppRequested(id):
                 state.$watchedApps.withLock { $0.removeAll { $0.bundleID == id } }

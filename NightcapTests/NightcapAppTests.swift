@@ -131,6 +131,23 @@ final class NightcapAppTests: XCTestCase {
 
         let duplicate = WatchedApp(bundleID: "com.mitchellh.ghostty", displayName: "Ghostty")
         await store.send(.addAppRequested(duplicate))
+        XCTAssertEqual(env.reviewPrompts.value, 0)
+    }
+
+    func test_add_new_app_requests_review_after_value_moment() async {
+        let env = makeEnv(running: [])
+        let store = makeStore(env: env)
+
+        await store.send(.onAppear) {
+            $0.launchAtLoginStatus = .disabled
+        }
+
+        let app = WatchedApp(bundleID: "com.example.writer", displayName: "Writer")
+        await store.send(.addAppRequested(app)) {
+            $0.$watchedApps.withLock { $0.append(app) }
+        }
+
+        XCTAssertEqual(env.reviewPrompts.value, 1)
     }
 
     func test_observation_toggle_off_releases_running_app_without_removing_it() async {
@@ -249,6 +266,7 @@ final class NightcapAppTests: XCTestCase {
         let runningApps: LockIsolated<[WatchedApp]>
         let acquired: LockIsolated<[String]>
         let released: LockIsolated<Int>
+        let reviewPrompts: LockIsolated<Int>
     }
 
     private func makeEnv(
@@ -259,7 +277,8 @@ final class NightcapAppTests: XCTestCase {
             running: LockIsolated(running),
             runningApps: LockIsolated(runningApps),
             acquired: LockIsolated([]),
-            released: LockIsolated(0)
+            released: LockIsolated(0),
+            reviewPrompts: LockIsolated(0)
         )
     }
 
@@ -280,6 +299,9 @@ final class NightcapAppTests: XCTestCase {
             }
             $0.powerAssertionClient.release = {
                 env.released.withValue { $0 += 1 }
+            }
+            $0.reviewPromptClient.requestIfAppropriate = {
+                env.reviewPrompts.withValue { $0 += 1 }
             }
         }
     }
