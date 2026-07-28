@@ -54,10 +54,110 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             -resultBundlePath TestResults.xcresult
 
+      - name: Check domain coverage
+        run: ./scripts/check-domain-coverage.sh TestResults.xcresult 80
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-results
           path: TestResults.xcresult
+          retention-days: 7
+
+  companions:
+    name: Companion apps
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen
+
+      - name: Build iPhone app
+        run: |
+          xcodebuild build \
+            -project Nightcap.xcodeproj \
+            -scheme NightcapPhone \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Build watch app
+        run: |
+          xcodebuild build \
+            -project Nightcap.xcodeproj \
+            -scheme NightcapWatch \
+            -destination 'generic/platform=watchOS Simulator' \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Snapshot tests
+        run: |
+          xcodebuild test \
+            -project Nightcap.xcodeproj \
+            -scheme NightcapPhone \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            -resultBundlePath PhoneTestResults.xcresult
+
+      - name: Upload phone test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phone-test-results
+          path: PhoneTestResults.xcresult
+          retention-days: 7
+
+  e2e:
+    name: Maestro e2e
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          brew install xcodegen
+          curl -Ls https://get.maestro.mobile.dev | bash
+          echo "$HOME/.maestro/bin" >> $GITHUB_PATH
+
+      - name: Generate Xcode project
+        run: xcodegen
+
+      - name: Boot simulator
+        run: |
+          UDID=$(xcrun simctl create maestro-iphone \
+            com.apple.CoreSimulator.SimDeviceType.iPhone-16)
+          xcrun simctl boot "$UDID"
+          echo "SIM_UDID=$UDID" >> $GITHUB_ENV
+
+      - name: Build and install app
+        run: |
+          xcodebuild build \
+            -project Nightcap.xcodeproj \
+            -scheme NightcapPhone \
+            -destination "platform=iOS Simulator,id=$SIM_UDID" \
+            -derivedDataPath DerivedData \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO
+          xcrun simctl install "$SIM_UDID" \
+            DerivedData/Build/Products/Debug-iphonesimulator/Nightcap.app
+
+      - name: Run Maestro flows
+        run: maestro test .maestro/
+
+      - name: Upload Maestro artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maestro-results
+          path: ~/.maestro/tests
           retention-days: 7

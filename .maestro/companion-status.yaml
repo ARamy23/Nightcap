@@ -1,0 +1,27 @@
+# Verifies the companion's core promise end to end: it shows what the Mac is
+# doing, and pausing an app from the phone releases the Mac.
+appId: com.abdocodes.nightcap.phone
+---
+- launchApp:
+    clearState: true
+
+# The Mac is being kept awake by Ghostty
+- assertVisible: "Nightcap"
+- assertVisible: "Keeping Mac Awake. 1 app active"
+- assertVisible: "Watched Apps"
+- assertVisible: "Ghostty"
+- assertVisible: "Xcode"
+
+# A paused app is labelled as such rather than silently shown as off
+- assertVisible: "zoom.us"
+- assertVisible: "Paused"
+
+# Pausing Ghostty from the phone lets the Mac sleep
+- tapOn:
+    id: "Watch Ghostty"
+- assertVisible: "Idle. Sleep allowed"
+
+# Resuming brings it back
+- tapOn:
+    id: "Watch Ghostty"
+- assertVisible: "Ghostty"

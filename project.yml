@@ -12,6 +12,9 @@ packages:
   swift-dependencies:
     url: https://github.com/pointfreeco/swift-dependencies
     from: 1.12.0
+  swift-snapshot-testing:
+    url: https://github.com/pointfreeco/swift-snapshot-testing
+    from: 1.17.0
   swift-sharing:
     url: https://github.com/pointfreeco/swift-sharing
     from: 2.8.0
@@ -257,6 +260,26 @@ targets:
       - target: NightcapCompanionUI_watchOS
       - package: ComposableArchitecture
         link: false
+
+  NightcapPhoneTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: 17.0
+    sources:
+      - path: Tests/PhoneTests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.abdocodes.nightcap.phone.tests
+        SWIFT_VERSION: 5.0
+    dependencies:
+      - target: NightcapPhone
+      - target: NightcapDomain_iOS
+      - target: NightcapCompanionUI_iOS
+      - package: ComposableArchitecture
+        link: false
+      - package: swift-snapshot-testing
+        product: SnapshotTesting
 
   NightcapTests:
     type: bundle.unit-test
