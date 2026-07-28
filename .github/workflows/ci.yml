@@ -11,6 +11,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  unit:
+    name: Domain unit tests (SwiftPM)
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run domain tests
+        working-directory: Packages/NightcapDomain
+        run: swift test
+
+      - name: Check domain coverage
+        run: ./scripts/check-domain-coverage.sh 80
+
   test:
     name: Build and Test
     runs-on: macos-15
@@ -55,7 +70,7 @@ jobs:
             -resultBundlePath TestResults.xcresult
 
       - name: Check domain coverage
-        run: ./scripts/check-domain-coverage.sh TestResults.xcresult 80
+        run: ./scripts/check-domain-coverage.sh 80
 
       - name: Upload test results
         if: always()

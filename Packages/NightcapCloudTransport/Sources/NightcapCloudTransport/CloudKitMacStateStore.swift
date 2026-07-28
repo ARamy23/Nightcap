@@ -37,18 +37,22 @@ public final class CloudKitMacStateStore: @unchecked Sendable {
             record = CKRecord(recordType: Self.recordType, recordID: recordID)
         }
 
-        record["payload"] = try JSONEncoder().encode(state) as CKRecordValue
-        record["lastUpdated"] = state.lastUpdated as CKRecordValue
+        let encoded = try MacStateRecordCoding.encode(state)
+        record[MacStateRecordCoding.payloadKey] = encoded.payload as CKRecordValue
+        record[MacStateRecordCoding.lastUpdatedKey] = encoded.lastUpdated as CKRecordValue
 
         do {
             _ = try await database.save(record)
         } catch let error as CKError where error.code == .serverRecordChanged {
-            // The Mac is the only writer, so a conflict means a stale local copy.
-            // Take the server's record and re-apply, rather than dropping the update.
-            guard let serverRecord = error.serverRecord else { throw error }
-            serverRecord["payload"] = try JSONEncoder().encode(state) as CKRecordValue
-            serverRecord["lastUpdated"] = state.lastUpdated as CKRecordValue
-            _ = try await database.save(serverRecord)
+            switch MacStateRecordCoding.resolveConflict(hasServerRecord: error.serverRecord != nil) {
+            case .propagateFailure:
+                throw error
+            case .reapplyOntoServerRecord:
+                let serverRecord = error.serverRecord!
+                serverRecord[MacStateRecordCoding.payloadKey] = encoded.payload as CKRecordValue
+                serverRecord[MacStateRecordCoding.lastUpdatedKey] = encoded.lastUpdated as CKRecordValue
+                _ = try await database.save(serverRecord)
+            }
         }
     }
 
@@ -57,8 +61,11 @@ public final class CloudKitMacStateStore: @unchecked Sendable {
     public func fetch() async throws -> MacState? {
         do {
             let record = try await database.record(for: recordID)
-            guard let data = record["payload"] as? Data else { return nil }
-            return try JSONDecoder().decode(MacState.self, from: data)
+            let payload = record[MacStateRecordCoding.payloadKey] as? Data
+            switch try MacStateRecordCoding.interpretFetch(payload: payload) {
+            case .noMacHasPublished: return nil
+            case let .state(state): return state
+            }
         } catch let error as CKError where error.code == .unknownItem {
             // The Mac has never published. Not an error: it just isn't running.
             return nil

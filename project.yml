@@ -216,6 +216,13 @@ targets:
         SKIP_INSTALL: YES
     dependencies:
       - target: NightcapDomain_${platform}
+      # Import visibility for the modules NightcapDomain re-exports; the objects
+      # already live inside that static framework.
+      - package: ComposableArchitecture
+        link: false
+      - package: swift-dependencies
+        product: Dependencies
+        link: false
 
   NightcapCompanionUI:
     type: framework
@@ -318,7 +325,7 @@ targets:
     platform: macOS
     deploymentTarget: 14.0
     sources:
-      - path: NightcapTests
+      - path: Packages/NightcapDomain/Tests/NightcapDomainTests
     dependencies:
       - target: Nightcap
       - target: NightcapDomain_macOS
@@ -349,8 +356,6 @@ schemes:
       targets:
         - NightcapTests
       gatherCoverageData: true
-      coverageTargets:
-        - NightcapDomain_macOS
     run:
       config: Debug
 
@@ -363,9 +368,6 @@ schemes:
       targets:
         - NightcapPhoneTests
       gatherCoverageData: true
-      coverageTargets:
-        - NightcapCompanionUI_iOS
-        - NightcapDomain_iOS
     run:
       config: Debug
 

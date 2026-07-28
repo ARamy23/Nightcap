@@ -1,57 +1,68 @@
 #!/bin/bash
 # Fails if pure-domain coverage regresses below the threshold.
 #
-# Domain = the files that hold logic independent of AppKit/IOKit/SwiftUI.
-# Live adapters (NSWorkspace, IOKit, SMAppService, StoreKit bridges) and SwiftUI
-# views are deliberately excluded: covering them means UI/integration tests, not
-# characterization.
+# Domain = the files holding logic independent of AppKit/IOKit/SwiftUI. Live
+# adapters (NSWorkspace, IOKit, SMAppService, StoreKit, NWPathMonitor) and
+# SwiftUI views are excluded on purpose: covering those means integration or
+# snapshot tests, not characterisation.
 #
-# Usage: scripts/check-domain-coverage.sh <path-to-.xcresult> [threshold]
+# Runs the domain package's tests through SwiftPM, so it needs no Xcode, no
+# simulator and no scheme.
+#
+# Usage: scripts/check-domain-coverage.sh [threshold]
 set -euo pipefail
 
-XCRESULT="${1:?usage: $0 <path-to-.xcresult> [threshold]}"
-THRESHOLD="${2:-80}"
+THRESHOLD="${1:-80}"
+PACKAGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/Packages/NightcapDomain"
 
-DOMAIN_FILES=(
-  "Packages/NightcapDomain/Sources/NightcapDomain/WatchedApp.swift"
-  "Packages/NightcapDomain/Sources/NightcapDomain/LaunchAtLoginStatus.swift"
-  "Packages/NightcapDomain/Sources/NightcapDomain/AppFeature.swift"
-)
+export DOMAIN_FILES="WatchedApp.swift LaunchAtLoginStatus.swift AppFeature.swift MacState.swift CompanionFeature.swift MacStateRecordCoding.swift"
+export THRESHOLD
 
-report=$(xcrun xccov view --report --files-for-target NightcapDomain.framework "$XCRESULT")
+cd "$PACKAGE_DIR"
+swift test --enable-code-coverage >/dev/null 2>&1
+REPORT="$(swift test --enable-code-coverage --show-codecov-path 2>/dev/null)"
 
-covered=0
-total=0
-echo "Domain coverage:"
-for file in "${DOMAIN_FILES[@]}"; do
-  # xccov prints e.g. "93.14% (258/277)" — take the last (n/m) on the line.
-  line=$(grep -F "/$file " <<<"$report" || true)
-  if [[ -z "$line" ]]; then
-    echo "  MISSING $file — not in coverage report" >&2
-    exit 1
-  fi
-  # xccov pads columns with trailing spaces, so match the last (n/m) anywhere.
-  fraction=$(grep -oE '\([0-9]+/[0-9]+\)' <<<"$line" | tail -1 | tr -d '()')
-  c=${fraction%/*}
-  t=${fraction#*/}
-  covered=$((covered + c))
-  total=$((total + t))
-  filepct=$(awk -v c="$c" -v t="$t" 'BEGIN{printf "%.2f", c*100/t}')
-  printf '  %-40s %6s%% (%s/%s)\n' "$(basename "$file")" "$filepct" "$c" "$t"
-done
-
-if (( total == 0 )); then
-  echo "No domain lines found — coverage not enabled on the test plan?" >&2
+if [[ ! -f "$REPORT" ]]; then
+  echo "No coverage report at $REPORT" >&2
   exit 1
 fi
 
-pct=$(awk -v c="$covered" -v t="$total" 'BEGIN{printf "%.2f", c*100/t}')
-echo "  ----"
-printf '  %-40s %s%% (%d/%d)\n' TOTAL "$pct" "$covered" "$total"
+python3 - "$REPORT" <<'PY'
+import json, os, sys
 
-if awk "BEGIN{exit !($pct < $THRESHOLD)}"; then
-  echo "FAIL: domain coverage $pct% is below the $THRESHOLD% threshold" >&2
-  exit 1
-fi
+wanted = set(os.environ["DOMAIN_FILES"].split())
+threshold = float(os.environ["THRESHOLD"])
+data = json.load(open(sys.argv[1]))
 
-echo "PASS: domain coverage $pct% meets the $THRESHOLD% threshold"
+covered = total = 0
+seen = set()
+print("Domain coverage:")
+for f in data["data"][0]["files"]:
+    name = f["filename"].split("/")[-1]
+    if name not in wanted:
+        continue
+    seen.add(name)
+    s = f["summary"]["lines"]
+    covered += s["covered"]
+    total += s["count"]
+    print(f"  {name:<34}{s['percent']:6.2f}%  ({s['covered']}/{s['count']})")
+
+missing = wanted - seen
+if missing:
+    print(f"  MISSING from coverage report: {', '.join(sorted(missing))}", file=sys.stderr)
+    sys.exit(1)
+
+if total == 0:
+    print("  No domain lines found", file=sys.stderr)
+    sys.exit(1)
+
+pct = 100.0 * covered / total
+print("  " + "-" * 48)
+print(f"  {'TOTAL':<34}{pct:6.2f}%  ({covered}/{total})")
+
+if pct < threshold:
+    print(f"FAIL: domain coverage {pct:.2f}% is below the {threshold:.0f}% threshold", file=sys.stderr)
+    sys.exit(1)
+
+print(f"PASS: domain coverage {pct:.2f}% meets the {threshold:.0f}% threshold")
+PY

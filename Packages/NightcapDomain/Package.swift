@@ -11,10 +11,21 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/swift-composable-architecture", from: "1.0.0"),
         .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.12.0"),
         .package(url: "https://github.com/pointfreeco/swift-sharing", from: "2.8.0"),
+        .package(url: "https://github.com/pointfreeco/swift-concurrency-extras", from: "1.3.2"),
     ],
     targets: [
         // Pure: no AppKit, IOKit, ServiceManagement or StoreKit, so this builds
         // for iOS and watchOS as well as macOS.
+        .testTarget(
+            name: "NightcapDomainTests",
+            dependencies: [
+                "NightcapDomain",
+                .product(name: "ComposableArchitecture", package: "swift-composable-architecture"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "Sharing", package: "swift-sharing"),
+                .product(name: "ConcurrencyExtras", package: "swift-concurrency-extras"),
+            ]
+        ),
         .target(
             name: "NightcapDomain",
             dependencies: [
