@@ -5,9 +5,12 @@ appId: com.abdocodes.nightcap.phone
 - launchApp:
     clearState: true
 
-# The Mac is being kept awake by Ghostty
-- assertVisible: "Nightcap"
-- assertVisible: "Keeping Mac Awake. 1 app active"
+# The first snapshot arrives asynchronously after onAppear subscribes, so wait
+# for it rather than asserting into an empty screen.
+- extendedWaitUntil:
+    visible: "Keeping Mac Awake. 1 app active"
+    timeout: 10000
+
 - assertVisible: "Watched Apps"
 - assertVisible: "Ghostty"
 - assertVisible: "Xcode"
@@ -17,11 +20,11 @@ appId: com.abdocodes.nightcap.phone
 - assertVisible: "Paused"
 
 # Pausing Ghostty from the phone lets the Mac sleep
-- tapOn:
-    id: "Watch Ghostty"
-- assertVisible: "Idle. Sleep allowed"
+- tapOn: "Watch Ghostty"
+- extendedWaitUntil:
+    visible: "Idle. Sleep allowed"
+    timeout: 10000
 
-# Resuming brings it back
-- tapOn:
-    id: "Watch Ghostty"
+# Resuming brings the app back into the list as watched
+- tapOn: "Watch Ghostty"
 - assertVisible: "Ghostty"

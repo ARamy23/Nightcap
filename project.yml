@@ -125,6 +125,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.abdocodes.nightcap.domain
         SWIFT_VERSION: 5.0
         GENERATE_INFOPLIST_FILE: YES
+        ENABLE_PREVIEWS: NO
         # Static: avoids embedding/signing three dynamic frameworks and the
         # duplicate-symbol problems from mixing them with SPM PackageFrameworks.
         MACH_O_TYPE: staticlib
@@ -229,6 +230,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.abdocodes.nightcap.companionui
         SWIFT_VERSION: 5.0
         GENERATE_INFOPLIST_FILE: YES
+        ENABLE_PREVIEWS: NO
         MACH_O_TYPE: staticlib
         SKIP_INSTALL: YES
     dependencies:
@@ -245,9 +247,11 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.abdocodes.nightcap.phone
-        PRODUCT_NAME: Nightcap
         SWIFT_VERSION: 5.0
         GENERATE_INFOPLIST_FILE: YES
+        # Preview thunk classes crash objc_copyClassList on a runtime older than
+        # the SDK, which breaks Maestro's XCUITest driver.
+        ENABLE_PREVIEWS: NO
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_CFBundleDisplayName: Nightcap
         CODE_SIGN_STYLE: Automatic
@@ -267,12 +271,16 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.abdocodes.nightcap.watch
-        PRODUCT_NAME: Nightcap
         SWIFT_VERSION: 5.0
         GENERATE_INFOPLIST_FILE: YES
+        # Preview thunk classes crash objc_copyClassList on a runtime older than
+        # the SDK, which breaks Maestro's XCUITest driver.
+        ENABLE_PREVIEWS: NO
         INFOPLIST_KEY_CFBundleDisplayName: Nightcap
         INFOPLIST_KEY_WKApplication: YES
-        INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp: YES
+        # Watch-only: its counterpart is a Mac, not the iPhone app, so there is
+        # no WKCompanionAppBundleIdentifier to point at.
+        INFOPLIST_KEY_WKWatchOnly: YES
         CODE_SIGN_STYLE: Automatic
     dependencies:
       - target: NightcapDomain_watchOS
@@ -291,10 +299,15 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.abdocodes.nightcap.phone.tests
         SWIFT_VERSION: 5.0
+        ENABLE_PREVIEWS: NO
+    # No TEST_HOST: snapshot tests render views directly and need no running app.
+    # NightcapCompanionUI is static and already absorbs NightcapDomain plus the
+    # package objects it links, so it is the only module linked here; anything
+    # else would appear twice.
     dependencies:
-      - target: NightcapPhone
-      - target: NightcapDomain_iOS
       - target: NightcapCompanionUI_iOS
+      - target: NightcapDomain_iOS
+        link: false
       - package: ComposableArchitecture
         link: false
       - package: swift-snapshot-testing
@@ -323,3 +336,42 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.abdocodes.nightcap.tests
         SWIFT_VERSION: 5.0
+
+# Defined explicitly rather than relying on Xcode's autocreated schemes, which
+# did not build the iOS test bundle (tests were listed but reported "No result").
+schemes:
+  Nightcap:
+    build:
+      targets:
+        Nightcap: all
+        NightcapTests: [test]
+    test:
+      targets:
+        - NightcapTests
+      gatherCoverageData: true
+      coverageTargets:
+        - NightcapDomain_macOS
+    run:
+      config: Debug
+
+  NightcapPhone:
+    build:
+      targets:
+        NightcapPhone: all
+        NightcapPhoneTests: [test]
+    test:
+      targets:
+        - NightcapPhoneTests
+      gatherCoverageData: true
+      coverageTargets:
+        - NightcapCompanionUI_iOS
+        - NightcapDomain_iOS
+    run:
+      config: Debug
+
+  NightcapWatch:
+    build:
+      targets:
+        NightcapWatch: all
+    run:
+      config: Debug

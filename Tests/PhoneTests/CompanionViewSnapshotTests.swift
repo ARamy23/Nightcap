@@ -4,6 +4,7 @@ import SwiftUI
 import Testing
 
 @testable import NightcapCompanionUI
+import Dependencies
 import NightcapDomain
 
 /// Snapshots pin the companion screen's layout for each state the user can
@@ -17,8 +18,15 @@ struct CompanionViewSnapshotTests {
         state.macState = macState
         state.hasConnected = macState.lastUpdated != .distantPast
         state.failureMessage = failure
+        // The view sends .onAppear, which subscribes to the transport. Without a
+        // stub that hits the unimplemented test dependency and records an issue,
+        // so these snapshots were passing only by timing luck.
         return CompanionView(
-            store: Store(initialState: state) { CompanionFeature() }
+            store: Store(initialState: state) {
+                CompanionFeature()
+            } withDependencies: {
+                $0.macStateTransportClient = .stub(initial: macState)
+            }
         )
         .frame(width: 393, height: 852)
     }
