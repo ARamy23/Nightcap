@@ -1,16 +1,46 @@
 # Privacy Policy
 
-**Last updated:** May 14, 2026
+**Last updated:** July 29, 2026
 
-Nightcap collects nothing. This document exists because the Mac App Store
-requires a public privacy policy URL — not because there's anything to
-disclose.
+Nightcap collects nothing. We operate no servers and receive no data about
+you. This document exists because the Mac App Store requires a public privacy
+policy URL.
 
 ## What we collect
 
 **Nothing.** Nightcap does not collect, transmit, log, or share any user
-data. There are no analytics, no telemetry, no crash reporting, no advertising
-identifiers, no user accounts, and no network connections of any kind.
+data with us or with any third party. There are no analytics, no telemetry, no
+crash reporting, no advertising identifiers, and no user accounts.
+
+## The companion apps and iCloud
+
+The Nightcap apps for iPhone and Apple Watch show what your Mac is doing and
+let you pause or resume a watched app remotely. That requires the Mac and your
+devices to exchange a small amount of information.
+
+**This feature is off unless you turn it on.** With it disabled, Nightcap makes
+no network connections at all, exactly as before.
+
+When enabled:
+
+- Your Mac writes a snapshot to **your own private iCloud database**, using
+  Apple's CloudKit. The snapshot contains the same watched-app list already
+  stored locally, which of those apps are currently running, whether your Mac
+  is being kept awake, and whether it has lost its network connection.
+- Your iPhone and Watch read that snapshot from the same private database.
+- Requests to pause or resume an app travel the same way.
+
+Two things worth being explicit about:
+
+- **The data goes to your iCloud account, not to us.** It sits in the private
+  database of your own account. We have no server, no access to your
+  container, and no ability to read any of it.
+- **It is still a network connection.** Enabling the companion apps means the
+  Mac app is no longer network-free. Apple's iCloud handles the transport, and
+  Apple's privacy policy governs data at rest in your account.
+
+To stop it, sign out of iCloud or disable iCloud for Nightcap in System
+Settings. Deleting the app removes its container and the snapshot with it.
 
 ## What we store locally
 

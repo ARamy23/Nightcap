@@ -197,6 +197,25 @@ targets:
       - target: NightcapDomain_macOS
       - package: ComposableArchitecture
 
+  NightcapCloudTransport:
+    type: framework
+    platform: [macOS, iOS, watchOS]
+    deploymentTarget:
+      macOS: 14.0
+      iOS: 17.0
+      watchOS: 10.0
+    sources:
+      - path: Packages/NightcapCloudTransport/Sources/NightcapCloudTransport
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.abdocodes.nightcap.cloudtransport
+        SWIFT_VERSION: 5.0
+        GENERATE_INFOPLIST_FILE: YES
+        MACH_O_TYPE: staticlib
+        SKIP_INSTALL: YES
+    dependencies:
+      - target: NightcapDomain_${platform}
+
   NightcapCompanionUI:
     type: framework
     platform: [iOS, watchOS]

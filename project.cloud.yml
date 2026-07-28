@@ -1,0 +1,25 @@
+# Opt-in overlay that turns on the CloudKit transport.
+#
+# Kept out of project.yml on purpose. Adding these entitlements makes Nightcap a
+# networked app, which contradicts the current App Store listing and PRIVACY.md
+# until that rewrite ships. It also requires a real DEVELOPMENT_TEAM and a
+# provisioned iCloud container, so ad-hoc local builds cannot use it.
+#
+#   xcodegen --spec project.cloud.yml
+include:
+  - project.yml
+
+targets:
+  Nightcap:
+    entitlements:
+      path: Nightcap/NightcapCloud.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-only: true
+        com.apple.security.network.client: true
+        com.apple.developer.icloud-services:
+          - CloudKit
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.abdocodes.nightcap
+    dependencies:
+      - target: NightcapCloudTransport_macOS

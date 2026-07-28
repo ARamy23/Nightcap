@@ -98,3 +98,48 @@ extension DependencyValues {
         set { self[ReviewPromptClient.self] = newValue }
     }
 }
+
+// MARK: - Publishing Mac state to companions
+
+@DependencyClient
+public struct MacStatePublisherClient: Sendable {
+    public var publish: @Sendable (_ state: MacState) async throws -> Void
+}
+
+extension MacStatePublisherClient: TestDependencyKey {
+    public static let testValue = MacStatePublisherClient()
+    /// Publishing is off until the app ships the iCloud entitlement.
+    public static let noop = MacStatePublisherClient(publish: { _ in })
+}
+
+extension MacStatePublisherClient: DependencyKey {
+    public static let liveValue = MacStatePublisherClient.noop
+}
+
+extension DependencyValues {
+    public var macStatePublisherClient: MacStatePublisherClient {
+        get { self[MacStatePublisherClient.self] }
+        set { self[MacStatePublisherClient.self] = newValue }
+    }
+}
+
+// MARK: - Network path
+
+/// Reports whether the Mac currently has a usable network path. Powers the
+/// hotspot suggestion: a Mac kept awake for work that has silently dropped off
+/// Wi-Fi is worth telling the user about.
+@DependencyClient
+public struct NetworkPathClient: Sendable {
+    public var isSatisfied: @Sendable () -> AsyncStream<Bool> = { .finished }
+}
+
+extension NetworkPathClient: TestDependencyKey {
+    public static let testValue = NetworkPathClient()
+}
+
+extension DependencyValues {
+    public var networkPathClient: NetworkPathClient {
+        get { self[NetworkPathClient.self] }
+        set { self[NetworkPathClient.self] = newValue }
+    }
+}

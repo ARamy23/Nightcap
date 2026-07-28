@@ -22,6 +22,23 @@ public struct CompanionView: View {
                     )
                 }
 
+                if store.macState.shouldSuggestHotspot {
+                    Section {
+                        Label {
+                            VStack(alignment: .leading) {
+                                Text("Your Mac lost its network")
+                                Text("Turn on Personal Hotspot to keep it online.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: "personalhotspot")
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("Your Mac lost its network. Turn on Personal Hotspot to keep it online.")
+                    }
+                }
+
                 if let failureMessage = store.failureMessage {
                     Section {
                         Label(failureMessage, systemImage: "exclamationmark.triangle")

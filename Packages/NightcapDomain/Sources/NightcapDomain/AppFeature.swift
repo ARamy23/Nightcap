@@ -12,6 +12,18 @@ public struct AppFeature {
         public var runningAppCandidates: [WatchedApp] = []
         public var launchAtLoginStatus: LaunchAtLoginStatus = .unknown
         public var assertionHeld = false
+        public var hasLostNetwork = false
+
+        /// What the companion apps see.
+        public var macState: MacState {
+            MacState(
+                isAwakeHeld: assertionHeld,
+                watchedApps: watchedApps,
+                runningWatchedIDs: runningWatchedIDs,
+                lastUpdated: Date(),
+                hasLostNetwork: hasLostNetwork
+            )
+        }
 
         public init() {}
     }
@@ -26,16 +38,19 @@ public struct AppFeature {
         case observationToggled(WatchedApp.ID, Bool)
         case launchAtLoginToggled(Bool)
         case launchAtLoginStatusUpdated(LaunchAtLoginStatus)
+        case networkPathChanged(isSatisfied: Bool)
         case quitTapped
     }
 
-    private enum CancelID { case lifecycle, launchAtLogin }
+    private enum CancelID { case lifecycle, launchAtLogin, networkPath }
 
     @Dependency(\.appLifecycleClient) var lifecycle
     @Dependency(\.powerAssertionClient) var assertion
     @Dependency(\.launchAtLoginClient) var launchAtLogin
     @Dependency(\.appQuitterClient) var quitter
     @Dependency(\.reviewPromptClient) var reviewPrompt
+    @Dependency(\.networkPathClient) var networkPath
+    @Dependency(\.macStatePublisherClient) var publisher
 
     public init() {}
 
@@ -46,12 +61,20 @@ public struct AppFeature {
                 state.launchAtLoginStatus = launchAtLogin.status()
                 reconcileRunning(&state)
                 refreshRunningAppCandidates(&state)
-                return .run { send in
-                    for await event in lifecycle.events() {
-                        await send(.lifecycleEvent(event))
+                return .merge(
+                    .run { send in
+                        for await event in lifecycle.events() {
+                            await send(.lifecycleEvent(event))
+                        }
                     }
-                }
-                .cancellable(id: CancelID.lifecycle, cancelInFlight: true)
+                    .cancellable(id: CancelID.lifecycle, cancelInFlight: true),
+                    .run { send in
+                        for await isSatisfied in networkPath.isSatisfied() {
+                            await send(.networkPathChanged(isSatisfied: isSatisfied))
+                        }
+                    }
+                    .cancellable(id: CancelID.networkPath, cancelInFlight: true)
+                )
 
             case let .lifecycleEvent(.launched(id)):
                 refreshRunningAppCandidates(&state)
@@ -137,12 +160,27 @@ public struct AppFeature {
                 state.launchAtLoginStatus = status
                 return .none
 
+            case let .networkPathChanged(isSatisfied):
+                let hasLostNetwork = !isSatisfied
+                guard hasLostNetwork != state.hasLostNetwork else { return .none }
+                state.hasLostNetwork = hasLostNetwork
+                return publishEffect(state)
+
             case .quitTapped:
                 assertion.release()
                 state.assertionHeld = false
                 quitter.quit()
                 return .none
             }
+        }
+    }
+
+    /// Companions only learn about the Mac when it says something, so publish
+    /// after anything they render changes.
+    private func publishEffect(_ state: State) -> Effect<Action> {
+        let macState = state.macState
+        return .run { _ in
+            try? await publisher.publish(macState)
         }
     }
 

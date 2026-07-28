@@ -412,6 +412,8 @@ struct LaunchAtLoginFeature {
             $0.appLifecycleClient.events = { .finished }
             $0.launchAtLoginClient.status = { .disabled }
             $0.launchAtLoginClient.setEnabled = { _ in throw TestEnv.SimulatedError() }
+            $0.networkPathClient.isSatisfied = { .finished }
+            $0.macStatePublisherClient.publish = { _ in }
             $0.powerAssertionClient.acquire = { _ in true }
             $0.powerAssertionClient.release = {}
         }
@@ -518,6 +520,10 @@ private struct TestEnv {
             $0.appLifecycleClient.runningApps = { runningApps.value }
             $0.appLifecycleClient.events = { .finished }
             $0.launchAtLoginClient.status = { .disabled }
+            // Scenarios drive network changes explicitly rather than through a
+            // live path monitor, and publishing to companions is off by default.
+            $0.networkPathClient.isSatisfied = { .finished }
+            $0.macStatePublisherClient.publish = { _ in }
             $0.powerAssertionClient.acquire = { reason in
                 acquired.withValue { $0.append(reason) }
                 return acquireReturns
@@ -615,5 +621,110 @@ struct CompanionFeatureTests {
         await store.receive(\.failed) {
             $0.failureMessage = "Couldn't reach your Mac."
         }
+    }
+}
+
+// MARK: - Feature: Noticing the Mac has lost its network
+
+@MainActor
+@Suite("Feature: Noticing the Mac has lost its network")
+struct NetworkLossFeature {
+    @Test("Scenario 1: losing the network while keeping the Mac awake is worth reporting")
+    func networkLossWhileHeldSuggestsHotspot() async {
+        // Given Ghostty is running and the Mac is being kept awake
+        let env = TestEnv(running: [.ghostty])
+        let store = env.makeStore()
+        await store.send(.onAppear) {
+            $0.runningWatchedIDs = [.ghostty]
+            $0.assertionHeld = true
+            $0.launchAtLoginStatus = .disabled
+        }
+
+        // When the network path drops
+        await store.send(.networkPathChanged(isSatisfied: false)) {
+            $0.hasLostNetwork = true
+        }
+
+        // Then companions are told to suggest a hotspot
+        #expect(store.state.macState.shouldSuggestHotspot)
+    }
+
+    @Test("Scenario 2: losing the network while idle is not worth nagging about")
+    func networkLossWhileIdleIsQuiet() async {
+        // Given nothing is being kept awake
+        let env = TestEnv(running: [])
+        let store = env.makeStore()
+        await store.send(.onAppear) {
+            $0.launchAtLoginStatus = .disabled
+        }
+
+        // When the network path drops
+        await store.send(.networkPathChanged(isSatisfied: false)) {
+            $0.hasLostNetwork = true
+        }
+
+        // Then no hotspot suggestion is made, because a sleeping Mac being
+        // offline is not interesting
+        #expect(store.state.macState.shouldSuggestHotspot == false)
+    }
+
+    @Test("Scenario 3: repeated identical path reports do not churn")
+    func duplicatePathReportsAreIgnored() async {
+        // Given the network is already up
+        let env = TestEnv(running: [])
+        let store = env.makeStore()
+        await store.send(.onAppear) {
+            $0.launchAtLoginStatus = .disabled
+        }
+
+        // When the monitor reports "satisfied" again, as NWPathMonitor does
+        // on every interface change
+        await store.send(.networkPathChanged(isSatisfied: true))
+
+        // Then nothing changes and no publish is triggered
+        #expect(store.state.hasLostNetwork == false)
+    }
+
+    @Test("Scenario 4: regaining the network clears the suggestion")
+    func regainingNetworkClearsSuggestion() async {
+        // Given the Mac is awake and offline
+        let env = TestEnv(running: [.ghostty])
+        let store = env.makeStore()
+        await store.send(.onAppear) {
+            $0.runningWatchedIDs = [.ghostty]
+            $0.assertionHeld = true
+            $0.launchAtLoginStatus = .disabled
+        }
+        await store.send(.networkPathChanged(isSatisfied: false)) {
+            $0.hasLostNetwork = true
+        }
+
+        // When the network comes back
+        await store.send(.networkPathChanged(isSatisfied: true)) {
+            $0.hasLostNetwork = false
+        }
+
+        // Then the hotspot suggestion goes away
+        #expect(store.state.macState.shouldSuggestHotspot == false)
+    }
+}
+
+// MARK: - Feature: What the companion sees about the network
+
+@Suite("Feature: What the companion sees about the network")
+struct MacStateNetworkTests {
+    @Test("Scenario 1: a snapshot written before this feature existed decodes safely")
+    func legacySnapshotDecodes() throws {
+        // Given a MacState published by an older Mac, with no hasLostNetwork
+        let json = """
+        {"isAwakeHeld":true,"watchedApps":[],"runningWatchedIDs":[],"lastUpdated":0}
+        """.data(using: .utf8)!
+
+        // When a newer companion decodes it
+        let state = try JSONDecoder().decode(MacState.self, from: json)
+
+        // Then it defaults to "network fine" rather than showing a false alarm
+        #expect(state.hasLostNetwork == false)
+        #expect(state.shouldSuggestHotspot == false)
     }
 }
