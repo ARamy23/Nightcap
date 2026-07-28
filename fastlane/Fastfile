@@ -1,0 +1,274 @@
+fastlane_require 'json'
+fastlane_require 'shellwords'
+
+# Nightcap iCloud provisioning.
+#
+# Everything here authenticates with the App Store Connect API key (.p8), which
+# is honoured directly by Spaceship::ConnectAPI and by xcodebuild's
+# -authenticationKey* flags. That is what keeps this headless: no Apple ID
+# password prompt, no 2FA code, and therefore no `fastlane spaceauth` step.
+#
+# Required env (fastlane/.env, gitignored):
+#   ASCAPI_KEY_ID, ASCAPI_ISSUER_ID, ASCAPI_KEY_FILEPATH — App Store Connect API
+#   TEAM_ID                                              — Apple Developer team
+#   NIGHTCAP_BUNDLE_PREFIX, NIGHTCAP_ICLOUD_CONTAINER    — Nightcap identifiers
+
+before_all do
+  Dotenv.load('.env') if defined?(Dotenv)
+end
+
+def bundle_prefix
+  ENV.fetch("NIGHTCAP_BUNDLE_PREFIX", "com.ahmedramy.nightcap")
+end
+
+def icloud_container
+  ENV.fetch("NIGHTCAP_ICLOUD_CONTAINER", "iCloud.#{bundle_prefix}")
+end
+
+def mac_app_id   = bundle_prefix
+def phone_app_id = "#{bundle_prefix}.phone"
+def watch_app_id = "#{bundle_prefix}.watch"
+
+def require_env!
+  missing = %w[ASCAPI_KEY_ID ASCAPI_ISSUER_ID ASCAPI_KEY_FILEPATH TEAM_ID].reject do |k|
+    ENV[k] && !ENV[k].strip.empty?
+  end
+  UI.user_error!("Missing env: #{missing.join(', ')} — set them in fastlane/.env") if missing.any?
+
+  key_path = File.expand_path(ENV["ASCAPI_KEY_FILEPATH"])
+  UI.user_error!("ASC API key not found at #{key_path}") unless File.exist?(key_path)
+end
+
+def connect_api_token!
+  require 'spaceship'
+  token = Spaceship::ConnectAPI::Token.create(
+    key_id: ENV["ASCAPI_KEY_ID"],
+    issuer_id: ENV["ASCAPI_ISSUER_ID"],
+    filepath: File.expand_path(ENV["ASCAPI_KEY_FILEPATH"])
+  )
+  Spaceship::ConnectAPI.token = token
+  token
+end
+
+def nightcap_api_key
+  app_store_connect_api_key(
+    key_id: ENV["ASCAPI_KEY_ID"],
+    issuer_id: ENV["ASCAPI_ISSUER_ID"],
+    key_filepath: File.expand_path(ENV["ASCAPI_KEY_FILEPATH"])
+  )
+end
+
+# Find-or-create an App ID and ensure the requested capabilities.
+def ensure_app_id(identifier:, name:, platform:, caps:)
+  bundle = Spaceship::ConnectAPI::BundleId.all.find { |b| b.identifier == identifier }
+  if bundle.nil?
+    UI.message "Creating bundle id #{identifier}"
+    bundle = Spaceship::ConnectAPI::BundleId.create(
+      name: name,
+      identifier: identifier,
+      platform: platform,
+      seed_id: ENV["TEAM_ID"]
+    )
+  else
+    UI.message "Found bundle id #{identifier}"
+  end
+
+  existing = bundle.get_capabilities.map(&:capability_type)
+  caps.each do |cap, settings|
+    if existing.include?(cap)
+      UI.message "  ✓ #{cap} already enabled"
+    else
+      UI.message "  + enabling #{cap}"
+      bundle.create_capability(cap, settings: settings)
+    end
+  end
+  bundle
+end
+
+desc "Create the iCloud container (legacy portal — needs FASTLANE_SESSION)"
+lane :ensure_icloud_container do
+  require_env!
+  require 'spaceship'
+
+  UI.user_error!(
+    "FASTLANE_SESSION is not set. iCloud containers are not exposed by the App " \
+    "Store Connect API, so this one step needs a legacy portal session. " \
+    "Refresh it interactively with: fastlane spaceauth -u \"$FASTLANE_USER\""
+  ) if ENV["FASTLANE_SESSION"].to_s.strip.empty?
+
+  Spaceship::Portal.login(ENV["FASTLANE_USER"], nil)
+  Spaceship::Portal.client.team_id = ENV["TEAM_ID"]
+
+  identifier = icloud_container
+  existing = Spaceship::Portal::CloudContainer.all.find { |c| c.identifier == identifier }
+  container = existing
+  if container
+    UI.success "iCloud container #{identifier} already exists"
+  else
+    UI.message "Creating iCloud container #{identifier}"
+    container = Spaceship::Portal::CloudContainer.create!(identifier: identifier, name: "Nightcap Shared")
+    UI.success "Created #{identifier}"
+  end
+
+  # Creating the container is not enough: it has to be ASSOCIATED with each App
+  # ID, otherwise the provisioning profile is minted without the container and
+  # the build fails on "profile doesn't support the iCloud identifier".
+  # Mac App IDs are deliberately absent: Spaceship raises
+  # "`associate_cloud_containers` not available for Mac apps". Associating a
+  # container with a macOS App ID has to be done in Xcode's Signing &
+  # Capabilities or on the portal website. iOS/watchOS are fully automatable,
+  # and they are the actual CloudKit consumers here.
+  [[phone_app_id, false], [watch_app_id, false]].each do |app_id, is_mac|
+    app = Spaceship::Portal::App.find(app_id, mac: is_mac)
+    if app.nil?
+      UI.important "App ID #{app_id} not visible in the portal yet — skipping association"
+      next
+    end
+    already = app.associated_cloud_containers.map(&:identifier) rescue []
+    if already.include?(identifier)
+      UI.success "#{app_id}: already associated with #{identifier}"
+    else
+      UI.message "#{app_id}: associating #{identifier}"
+      app.associate_cloud_containers([container])
+    end
+  end
+end
+
+# NOTE on automation boundaries:
+# Containers are not exposed by the App Store Connect API — they live in the
+# legacy developer portal, which only accepts Apple ID session auth and so
+# would drag 2FA (spaceauth) back in. Instead the container is created
+# implicitly by `xcodebuild -allowProvisioningUpdates` when it provisions an
+# app carrying the iCloud entitlement, which stays headless via the API key.
+
+desc "Register this Mac in the developer account so it can be in a dev profile"
+lane :register_this_mac do
+  require_env!
+  connect_api_token!
+
+  # 2>/dev/null and tail -1: system_profiler writes unrelated warnings to stderr
+  # that otherwise end up inside the UDID and get rejected by the API.
+  udid = sh("system_profiler SPHardwareDataType 2>/dev/null | grep -i 'provisioning udid' | sed 's/.*: //' | tail -1").strip
+  UI.user_error!("Could not read this Mac's provisioning UDID") if udid.empty?
+
+  existing = Spaceship::ConnectAPI::Device.all.find { |d| d.udid.casecmp?(udid) }
+  if existing
+    UI.success "This Mac is already registered (#{existing.name})"
+  else
+    name = sh("scutil --get ComputerName 2>/dev/null | tail -1").strip
+    UI.message "Registering #{name}"
+    Spaceship::ConnectAPI::Device.create(
+      name: name,
+      platform: Spaceship::ConnectAPI::BundleIdPlatform::MAC_OS,
+      udid: udid
+    )
+    UI.success "Registered #{name}"
+  end
+end
+
+desc "Enable CloudKit + Push on the Mac, iPhone and Watch App IDs"
+lane :enable_icloud_capabilities do
+  require_env!
+  connect_api_token!
+
+  # ICLOUD needs the CloudKit version setting; PUSH is a plain flip.
+  cloud_caps = {
+    "ICLOUD" => [{ key: "ICLOUD_VERSION", options: [{ key: "XCODE_6" }] }],
+    "PUSH_NOTIFICATIONS" => []
+  }
+
+  ensure_app_id(
+    identifier: mac_app_id, name: "Nightcap Mac",
+    platform: Spaceship::ConnectAPI::Platform::MAC_OS, caps: cloud_caps
+  )
+  ensure_app_id(
+    identifier: phone_app_id, name: "Nightcap iPhone",
+    platform: Spaceship::ConnectAPI::Platform::IOS, caps: cloud_caps
+  )
+  ensure_app_id(
+    identifier: watch_app_id, name: "Nightcap Watch",
+    platform: Spaceship::ConnectAPI::Platform::IOS, caps: cloud_caps
+  )
+
+  UI.success "Capabilities synced for #{mac_app_id}, #{phone_app_id}, #{watch_app_id}"
+end
+
+desc "Regenerate the local Xcode project wired to your team and the CloudKit entitlement"
+lane :generate_cloud_project do
+  require_env!
+  root = File.expand_path("..", Dir.pwd)
+  profile = lane_context[SharedValues::SIGH_NAME]
+  env = {
+    "NIGHTCAP_TEAM_ID" => ENV["TEAM_ID"],
+    "NIGHTCAP_BUNDLE_PREFIX" => bundle_prefix,
+    "NIGHTCAP_ICLOUD_CONTAINER" => icloud_container
+  }
+  if profile
+    env["NIGHTCAP_SIGN_STYLE"] = "Manual"
+    env["NIGHTCAP_PROFILE"] = profile
+  end
+  # Shellwords, not hand-rolled quoting: the profile name contains spaces.
+  prefix = env.map { |k, v| "#{k}=#{Shellwords.escape(v)}" }.join(" ")
+  sh("cd #{Shellwords.escape(root)} && #{prefix} scripts/generate-cloud-project.sh")
+  UI.success "Generated Nightcap.xcodeproj with CloudKit enabled"
+end
+
+desc "Mint the Mac development profile via the API key (sigh, not xcodebuild)"
+lane :fetch_dev_profile do
+  require_env!
+  # xcodebuild's own -authenticationKey* path returns "bearer token" auth
+  # failures here, while Spaceship authenticates fine with the same .p8. So the
+  # profile is minted through sigh and handed to xcodebuild as a specifier.
+  get_provisioning_profile(
+    api_key: nightcap_api_key,
+    app_identifier: mac_app_id,
+    platform: "macos",
+    development: true,
+    force: true
+  )
+  UI.success "Profile: #{lane_context[SharedValues::SIGH_NAME]}"
+end
+
+desc "Mint the iPhone development profile and prove it carries the container"
+lane :verify_phone_profile_has_container do
+  require_env!
+  profile_path = get_provisioning_profile(
+    api_key: nightcap_api_key,
+    app_identifier: phone_app_id,
+    platform: "ios",
+    development: true,
+    force: true
+  )
+  path = lane_context[SharedValues::SIGH_PROFILE_PATH] || profile_path
+  ents = sh("security cms -D -i #{Shellwords.escape(path)} 2>/dev/null | " \
+            "plutil -extract Entitlements xml1 -o - - 2>/dev/null || true")
+  if ents.include?(icloud_container)
+    UI.success "Profile carries #{icloud_container}"
+  else
+    UI.user_error!("Profile does NOT carry #{icloud_container}")
+  end
+end
+
+desc "Build the Mac app signed for development, with CloudKit entitlements"
+lane :build_mac_with_cloudkit do
+  require_env!
+  root = File.expand_path("..", Dir.pwd)
+  key = File.expand_path(ENV["ASCAPI_KEY_FILEPATH"])
+
+  # -allowProvisioningUpdates plus the API key flags let xcodebuild mint the
+  # profile itself, headless.
+  # Signing settings live in the generated spec, scoped to the app target only.
+  sh("cd \"#{root}\" && xcodebuild build " \
+     "-project Nightcap.xcodeproj -scheme Nightcap " \
+     "-destination 'platform=macOS,arch=arm64'")
+end
+
+desc "End to end: container → capabilities → project → signed build"
+lane :provision_icloud do
+  register_this_mac
+  ensure_icloud_container
+  enable_icloud_capabilities
+  fetch_dev_profile
+  generate_cloud_project
+  build_mac_with_cloudkit
+end

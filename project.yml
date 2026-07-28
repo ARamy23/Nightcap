@@ -69,36 +69,52 @@ targets:
     sources:
       - path: Nightcap
     dependencies:
+      # Packages are link: false — their objects already live inside the static
+      # NightcapDomain framework this target links. Linking both duplicates them.
       - target: NightcapDomain_macOS
       - target: NightcapClients
       - target: NightcapUI
       - package: ComposableArchitecture
+        link: false
       - package: swift-dependencies
         product: Dependencies
+        link: false
       - package: swift-dependencies
         product: DependenciesMacros
+        link: false
       - package: swift-sharing
         product: Sharing
+        link: false
       - package: swift-case-paths
         product: CasePaths
+        link: false
       - package: swift-case-paths
         product: CasePathsCore
+        link: false
       - package: swift-concurrency-extras
         product: ConcurrencyExtras
+        link: false
       - package: swift-perception
         product: Perception
+        link: false
       - package: swift-perception
         product: PerceptionCore
+        link: false
       - package: xctest-dynamic-overlay
         product: IssueReporting
+        link: false
       - package: swift-custom-dump
         product: CustomDump
+        link: false
       - package: swift-identified-collections
         product: IdentifiedCollections
+        link: false
       - package: swift-navigation
         product: SwiftNavigation
+        link: false
       - package: combine-schedulers
         product: CombineSchedulers
+        link: false
     settings:
       base:
         CODE_SIGN_STYLE: Automatic
@@ -176,8 +192,10 @@ targets:
         SKIP_INSTALL: YES
     dependencies:
       - target: NightcapDomain_macOS
+        link: false
       - package: swift-dependencies
         product: Dependencies
+        link: false
 
   NightcapUI:
     type: framework
@@ -195,8 +213,12 @@ targets:
         MACH_O_TYPE: staticlib
         SKIP_INSTALL: YES
     dependencies:
+      # Static framework: NightcapDomain already carries these objects, and the
+      # app links it. Linking them here too duplicates every package symbol.
       - target: NightcapDomain_macOS
+        link: false
       - package: ComposableArchitecture
+        link: false
 
   NightcapCloudTransport:
     type: framework
@@ -215,9 +237,11 @@ targets:
         MACH_O_TYPE: staticlib
         SKIP_INSTALL: YES
     dependencies:
+      # link: false throughout — this framework is static and whatever links it
+      # already carries NightcapDomain and its package objects. Linking them
+      # again duplicates every symbol.
       - target: NightcapDomain_${platform}
-      # Import visibility for the modules NightcapDomain re-exports; the objects
-      # already live inside that static framework.
+        link: false
       - package: ComposableArchitecture
         link: false
       - package: swift-dependencies

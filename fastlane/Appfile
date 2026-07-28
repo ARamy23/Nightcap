@@ -1,0 +1,7 @@
+# Identifiers come from fastlane/.env (gitignored) so nothing personal or
+# secret lands in the repo. Nightcap's upstream project.yml still ships the
+# original author's team; this is purely for local iCloud provisioning.
+app_identifier ENV["NIGHTCAP_BUNDLE_PREFIX"]
+apple_id ENV["FASTLANE_USER"]
+team_id ENV["TEAM_ID"]
+itc_team_id ENV["ITC_TEAM_ID"]
