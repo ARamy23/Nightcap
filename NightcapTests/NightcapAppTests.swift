@@ -531,3 +531,89 @@ private struct TestEnv {
         }
     }
 }
+
+// MARK: - Feature: Watching the Mac from a companion app
+
+@MainActor
+@Suite("Feature: Watching the Mac from a companion app")
+struct CompanionFeatureTests {
+    @Test("Scenario 1: the app opens and shows the Mac's current state")
+    func openingSubscribesAndReceivesState() async {
+        // Given a Mac holding the assertion for Ghostty
+        let store = TestStore(initialState: CompanionFeature.State()) {
+            CompanionFeature()
+        } withDependencies: {
+            $0.macStateTransportClient = .stub(initial: .preview)
+        }
+
+        // When the companion appears
+        await store.send(.onAppear)
+
+        // Then the first snapshot arrives and the app stops saying "waiting"
+        await store.receive(\.macStateReceived) {
+            $0.macState = .preview
+            $0.hasConnected = true
+        }
+        #expect(store.state.isWaitingForMac == false)
+        #expect(store.state.macState.activeApps.map(\.displayName) == ["Ghostty"])
+
+        await store.send(.onDisappear)
+    }
+
+    @Test("Scenario 2: before any snapshot arrives the app does not claim the Mac is idle")
+    func waitingStateIsDistinctFromIdle() {
+        // Given a companion that has heard nothing yet
+        let state = CompanionFeature.State()
+
+        // Then it reports waiting, not "asleep"
+        #expect(state.isWaitingForMac)
+        #expect(state.macState.isAwakeHeld == false)
+    }
+
+    @Test("Scenario 3: pausing an app from the phone releases the Mac")
+    func pausingFromCompanionUpdatesMacState() async {
+        // Given a Mac kept awake by Ghostty
+        let store = TestStore(initialState: CompanionFeature.State()) {
+            CompanionFeature()
+        } withDependencies: {
+            $0.macStateTransportClient = .stub(initial: .preview)
+        }
+        await store.send(.onAppear)
+        await store.receive(\.macStateReceived) {
+            $0.macState = .preview
+            $0.hasConnected = true
+        }
+
+        // When the user pauses Ghostty from the companion
+        await store.send(.observationToggled("com.mitchellh.ghostty", false))
+
+        // Then the Mac reports itself no longer held
+        await store.receive(\.macStateReceived) {
+            $0.macState.watchedApps[0].isObserved = false
+            $0.macState.runningWatchedIDs = []
+            $0.macState.isAwakeHeld = false
+        }
+
+        await store.send(.onDisappear)
+    }
+
+    @Test("Scenario 4: a transport failure surfaces a message instead of failing silently")
+    func transportFailureSurfacesMessage() async {
+        // Given a Mac that cannot be reached
+        struct Unreachable: Error {}
+        let store = TestStore(initialState: CompanionFeature.State()) {
+            CompanionFeature()
+        } withDependencies: {
+            $0.macStateTransportClient.states = { .finished }
+            $0.macStateTransportClient.setObservation = { _, _ in throw Unreachable() }
+        }
+
+        // When the user toggles an app
+        await store.send(.observationToggled("com.mitchellh.ghostty", false))
+
+        // Then the failure is shown rather than swallowed
+        await store.receive(\.failed) {
+            $0.failureMessage = "Couldn't reach your Mac."
+        }
+    }
+}

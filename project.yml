@@ -66,7 +66,7 @@ targets:
     sources:
       - path: Nightcap
     dependencies:
-      - target: NightcapDomain
+      - target: NightcapDomain_macOS
       - target: NightcapClients
       - target: NightcapUI
       - package: ComposableArchitecture
@@ -110,8 +110,11 @@ targets:
 
   NightcapDomain:
     type: framework
-    platform: macOS
-    deploymentTarget: 14.0
+    platform: [macOS, iOS, watchOS]
+    deploymentTarget:
+      macOS: 14.0
+      iOS: 17.0
+      watchOS: 10.0
     sources:
       - path: Packages/NightcapDomain/Sources/NightcapDomain
     settings:
@@ -168,7 +171,7 @@ targets:
         MACH_O_TYPE: staticlib
         SKIP_INSTALL: YES
     dependencies:
-      - target: NightcapDomain
+      - target: NightcapDomain_macOS
       - package: swift-dependencies
         product: Dependencies
 
@@ -188,8 +191,50 @@ targets:
         MACH_O_TYPE: staticlib
         SKIP_INSTALL: YES
     dependencies:
-      - target: NightcapDomain
+      - target: NightcapDomain_macOS
       - package: ComposableArchitecture
+
+  NightcapCompanionUI:
+    type: framework
+    platform: [iOS, watchOS]
+    deploymentTarget:
+      iOS: 17.0
+      watchOS: 10.0
+    sources:
+      - path: Packages/NightcapCompanionUI/Sources/NightcapCompanionUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.abdocodes.nightcap.companionui
+        SWIFT_VERSION: 5.0
+        GENERATE_INFOPLIST_FILE: YES
+        MACH_O_TYPE: staticlib
+        SKIP_INSTALL: YES
+    dependencies:
+      - target: NightcapDomain_${platform}
+      - package: ComposableArchitecture
+        link: false
+
+  NightcapPhone:
+    type: application
+    platform: iOS
+    deploymentTarget: 17.0
+    sources:
+      - path: Apps/Phone
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.abdocodes.nightcap.phone
+        PRODUCT_NAME: Nightcap
+        SWIFT_VERSION: 5.0
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Nightcap
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1,2"
+    dependencies:
+      - target: NightcapDomain_iOS
+      - target: NightcapCompanionUI_iOS
+      - package: ComposableArchitecture
+        link: false
 
   NightcapTests:
     type: bundle.unit-test
@@ -199,7 +244,7 @@ targets:
       - path: NightcapTests
     dependencies:
       - target: Nightcap
-      - target: NightcapDomain
+      - target: NightcapDomain_macOS
       - package: ComposableArchitecture
       - package: swift-dependencies
         product: Dependencies
