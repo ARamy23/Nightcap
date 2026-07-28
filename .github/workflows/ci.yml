@@ -26,6 +26,10 @@ jobs:
       - name: Check domain coverage
         run: ./scripts/check-domain-coverage.sh 80
 
+      - name: Run menu bar snapshot tests
+        working-directory: Packages/NightcapUI
+        run: swift test
+
   test:
     name: Build and Test
     runs-on: macos-15

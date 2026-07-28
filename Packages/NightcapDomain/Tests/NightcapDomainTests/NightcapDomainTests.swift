@@ -1011,3 +1011,43 @@ struct FailureBannerFeature {
         }
     }
 }
+
+// MARK: - Feature: Deciding when a hotspot is worth suggesting
+
+@Suite("Feature: Deciding when a hotspot is worth suggesting")
+struct HotspotSuggestionTests {
+    @Test(
+        "Scenario 1: only an awake-and-offline Mac is worth a hotspot nudge",
+        arguments: [
+            (awake: true, offline: true, expected: true),
+            (awake: true, offline: false, expected: false),
+            (awake: false, offline: true, expected: false),
+            (awake: false, offline: false, expected: false),
+        ]
+    )
+    func hotspotIsSuggestedOnlyWhenAwakeAndOffline(
+        combination: (awake: Bool, offline: Bool, expected: Bool)
+    ) {
+        // Given a Mac in one of the four awake/offline combinations
+        var state = MacState.preview
+        state.isAwakeHeld = combination.awake
+        state.hasLostNetwork = combination.offline
+
+        // Then a hotspot is suggested only when work is being kept alive AND the
+        // network is gone. A sleeping Mac losing Wi-Fi is not worth a nudge, and
+        // an online Mac never is.
+        #expect(state.shouldSuggestHotspot == combination.expected)
+    }
+
+    @Test("Scenario 2: an offline Mac still reports which apps are keeping it awake")
+    func offlineStateStillReportsActiveApps() {
+        // Given a Mac kept awake by Ghostty that has dropped off the network
+        var state = MacState.preview
+        state.hasLostNetwork = true
+
+        // Then the companion can still name what is holding it, so the nudge has
+        // context rather than being a bare warning
+        #expect(state.shouldSuggestHotspot)
+        #expect(state.activeApps.map(\.displayName) == ["Ghostty"])
+    }
+}

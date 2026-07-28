@@ -10,8 +10,18 @@ let package = Package(
     dependencies: [
         .package(path: "../NightcapDomain"),
         .package(url: "https://github.com/pointfreeco/swift-composable-architecture", from: "1.0.0"),
+        .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.17.0"),
     ],
     targets: [
+        .testTarget(
+            name: "NightcapUITests",
+            dependencies: [
+                "NightcapUI",
+                .product(name: "NightcapDomain", package: "NightcapDomain"),
+                .product(name: "ComposableArchitecture", package: "swift-composable-architecture"),
+                .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
+            ]
+        ),
         .target(
             name: "NightcapUI",
             dependencies: [
