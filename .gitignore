@@ -22,3 +22,6 @@ dist/
 *.ipa
 *.dSYM.zip
 *.dSYM
+
+## local-only spec override
+project.local.yml
