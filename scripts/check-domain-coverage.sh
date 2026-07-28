@@ -13,12 +13,12 @@ XCRESULT="${1:?usage: $0 <path-to-.xcresult> [threshold]}"
 THRESHOLD="${2:-80}"
 
 DOMAIN_FILES=(
-  "Nightcap/Domain/WatchedApp.swift"
-  "Nightcap/Domain/LaunchAtLoginStatus.swift"
-  "Nightcap/AppFeature.swift"
+  "Packages/NightcapDomain/Sources/NightcapDomain/WatchedApp.swift"
+  "Packages/NightcapDomain/Sources/NightcapDomain/LaunchAtLoginStatus.swift"
+  "Packages/NightcapDomain/Sources/NightcapDomain/AppFeature.swift"
 )
 
-report=$(xcrun xccov view --report --files-for-target Nightcap.app "$XCRESULT")
+report=$(xcrun xccov view --report --files-for-target NightcapDomain.framework "$XCRESULT")
 
 covered=0
 total=0

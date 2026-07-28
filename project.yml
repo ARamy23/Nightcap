@@ -6,8 +6,6 @@ options:
     macOS: 14.0
 
 packages:
-  NightcapKit:
-    path: Packages/NightcapKit
   ComposableArchitecture:
     url: https://github.com/pointfreeco/swift-composable-architecture
     from: 1.0.0
@@ -68,12 +66,9 @@ targets:
     sources:
       - path: Nightcap
     dependencies:
-      - package: NightcapKit
-        product: NightcapDomain
-      - package: NightcapKit
-        product: NightcapClients
-      - package: NightcapKit
-        product: NightcapUI
+      - target: NightcapDomain
+      - target: NightcapClients
+      - target: NightcapUI
       - package: ComposableArchitecture
       - package: swift-dependencies
         product: Dependencies
@@ -113,6 +108,89 @@ targets:
         Release:
           ENABLE_HARDENED_RUNTIME: YES
 
+  NightcapDomain:
+    type: framework
+    platform: macOS
+    deploymentTarget: 14.0
+    sources:
+      - path: Packages/NightcapDomain/Sources/NightcapDomain
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.abdocodes.nightcap.domain
+        SWIFT_VERSION: 5.0
+        GENERATE_INFOPLIST_FILE: YES
+        # Static: avoids embedding/signing three dynamic frameworks and the
+        # duplicate-symbol problems from mixing them with SPM PackageFrameworks.
+        MACH_O_TYPE: staticlib
+        SKIP_INSTALL: YES
+    dependencies:
+      - package: ComposableArchitecture
+      - package: swift-dependencies
+        product: Dependencies
+      - package: swift-dependencies
+        product: DependenciesMacros
+      - package: swift-sharing
+        product: Sharing
+      - package: swift-case-paths
+        product: CasePaths
+      - package: swift-case-paths
+        product: CasePathsCore
+      - package: swift-concurrency-extras
+        product: ConcurrencyExtras
+      - package: swift-perception
+        product: Perception
+      - package: swift-perception
+        product: PerceptionCore
+      - package: xctest-dynamic-overlay
+        product: IssueReporting
+      - package: swift-custom-dump
+        product: CustomDump
+      - package: swift-identified-collections
+        product: IdentifiedCollections
+      - package: swift-navigation
+        product: SwiftNavigation
+      - package: combine-schedulers
+        product: CombineSchedulers
+
+  NightcapClients:
+    type: framework
+    platform: macOS
+    deploymentTarget: 14.0
+    sources:
+      - path: Packages/NightcapClients/Sources/NightcapClients
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.abdocodes.nightcap.clients
+        SWIFT_VERSION: 5.0
+        GENERATE_INFOPLIST_FILE: YES
+        # Static: avoids embedding/signing three dynamic frameworks and the
+        # duplicate-symbol problems from mixing them with SPM PackageFrameworks.
+        MACH_O_TYPE: staticlib
+        SKIP_INSTALL: YES
+    dependencies:
+      - target: NightcapDomain
+      - package: swift-dependencies
+        product: Dependencies
+
+  NightcapUI:
+    type: framework
+    platform: macOS
+    deploymentTarget: 14.0
+    sources:
+      - path: Packages/NightcapUI/Sources/NightcapUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.abdocodes.nightcap.ui
+        SWIFT_VERSION: 5.0
+        GENERATE_INFOPLIST_FILE: YES
+        # Static: avoids embedding/signing three dynamic frameworks and the
+        # duplicate-symbol problems from mixing them with SPM PackageFrameworks.
+        MACH_O_TYPE: staticlib
+        SKIP_INSTALL: YES
+    dependencies:
+      - target: NightcapDomain
+      - package: ComposableArchitecture
+
   NightcapTests:
     type: bundle.unit-test
     platform: macOS
@@ -121,11 +199,12 @@ targets:
       - path: NightcapTests
     dependencies:
       - target: Nightcap
-      - package: NightcapKit
-        product: NightcapDomain
+      - target: NightcapDomain
       - package: ComposableArchitecture
       - package: swift-dependencies
         product: Dependencies
+      - package: swift-dependencies
+        product: DependenciesMacros
       - package: swift-sharing
         product: Sharing
       - package: swift-concurrency-extras
