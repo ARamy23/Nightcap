@@ -1,21 +1,22 @@
-import AppKit
 import ComposableArchitecture
 import Foundation
 import Sharing
 
 @Reducer
-struct AppFeature {
+public struct AppFeature {
     @ObservableState
-    struct State: Equatable {
+    public struct State: Equatable {
         @Shared(.fileStorage(.documentsDirectory.appending(component: "watched-apps.json")))
-        var watchedApps: [WatchedApp] = [.ghostty]
-        var runningWatchedIDs: Set<String> = []
-        var runningAppCandidates: [WatchedApp] = []
-        var launchAtLoginStatus: LaunchAtLoginStatus = .unknown
-        var assertionHeld = false
+        public var watchedApps: [WatchedApp] = [.ghostty]
+        public var runningWatchedIDs: Set<String> = []
+        public var runningAppCandidates: [WatchedApp] = []
+        public var launchAtLoginStatus: LaunchAtLoginStatus = .unknown
+        public var assertionHeld = false
+
+        public init() {}
     }
 
-    enum Action {
+    public enum Action {
         case onAppear
         case lifecycleEvent(AppLifecycleClient.Event)
         case reconcile
@@ -36,7 +37,9 @@ struct AppFeature {
     @Dependency(\.appQuitterClient) var quitter
     @Dependency(\.reviewPromptClient) var reviewPrompt
 
-    var body: some ReducerOf<Self> {
+    public init() {}
+
+    public var body: some ReducerOf<Self> {
         Reduce { state, action in
             switch action {
             case .onAppear:

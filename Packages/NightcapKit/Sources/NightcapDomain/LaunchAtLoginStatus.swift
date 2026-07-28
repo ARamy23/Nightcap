@@ -1,19 +1,25 @@
 import Foundation
-import ServiceManagement
 
-enum LaunchAtLoginStatus: Equatable, Sendable {
+#if canImport(ServiceManagement)
+import ServiceManagement
+#endif
+
+public enum LaunchAtLoginStatus: Equatable, Sendable {
     case unknown
     case disabled
     case enabled
     case requiresApproval
     case error(String)
 
-    var isOn: Bool {
+    public var isOn: Bool {
         if case .enabled = self { return true }
         return false
     }
+}
 
-    init(_ status: SMAppService.Status) {
+#if canImport(ServiceManagement)
+extension LaunchAtLoginStatus {
+    public init(_ status: SMAppService.Status) {
         switch status {
         case .notRegistered: self = .disabled
         case .enabled: self = .enabled
@@ -23,3 +29,4 @@ enum LaunchAtLoginStatus: Equatable, Sendable {
         }
     }
 }
+#endif

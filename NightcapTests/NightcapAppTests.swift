@@ -4,7 +4,7 @@ import Foundation
 import Sharing
 import Testing
 
-@testable import Nightcap
+import NightcapDomain
 
 // MARK: - Feature: Holding the sleep assertion
 

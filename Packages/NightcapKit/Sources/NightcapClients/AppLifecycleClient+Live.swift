@@ -1,22 +1,9 @@
 import AppKit
 import Dependencies
-import DependenciesMacros
-
-@DependencyClient
-struct AppLifecycleClient: Sendable {
-    var runningBundleIDs: @Sendable () -> Set<String> = { [] }
-    var runningApps: @Sendable () -> [WatchedApp] = { [] }
-    var events: @Sendable () -> AsyncStream<Event> = { .finished }
-
-    enum Event: Sendable, Equatable {
-        case launched(bundleID: String)
-        case terminated(bundleID: String)
-        case wake
-    }
-}
+import NightcapDomain
 
 extension AppLifecycleClient: DependencyKey {
-    static let liveValue: AppLifecycleClient = .init(
+    public static let liveValue: AppLifecycleClient = .init(
         runningBundleIDs: {
             Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
         },
@@ -80,13 +67,4 @@ extension AppLifecycleClient: DependencyKey {
             }
         }
     )
-
-    static let testValue = AppLifecycleClient()
-}
-
-extension DependencyValues {
-    var appLifecycleClient: AppLifecycleClient {
-        get { self[AppLifecycleClient.self] }
-        set { self[AppLifecycleClient.self] = newValue }
-    }
 }

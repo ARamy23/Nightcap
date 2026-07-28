@@ -1,11 +1,16 @@
+import NightcapDomain
 import ComposableArchitecture
 import Foundation
 import SwiftUI
 
-struct MenuContentView: View {
-    @Bindable var store: StoreOf<AppFeature>
+public struct MenuContentView: View {
+    @Bindable public var store: StoreOf<AppFeature>
 
-    var body: some View {
+    public init(store: StoreOf<AppFeature>) {
+        self.store = store
+    }
+
+    public var body: some View {
         MenuStatusSection(
             assertionHeld: store.assertionHeld,
             activeAppCount: store.runningWatchedIDs.count

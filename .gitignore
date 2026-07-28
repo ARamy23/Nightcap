@@ -25,3 +25,6 @@ dist/
 
 ## local-only spec override
 project.local.yml
+
+## SwiftPM local build artifacts
+Packages/*/.build/

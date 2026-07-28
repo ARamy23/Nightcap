@@ -6,6 +6,8 @@ options:
     macOS: 14.0
 
 packages:
+  NightcapKit:
+    path: Packages/NightcapKit
   ComposableArchitecture:
     url: https://github.com/pointfreeco/swift-composable-architecture
     from: 1.0.0
@@ -66,6 +68,12 @@ targets:
     sources:
       - path: Nightcap
     dependencies:
+      - package: NightcapKit
+        product: NightcapDomain
+      - package: NightcapKit
+        product: NightcapClients
+      - package: NightcapKit
+        product: NightcapUI
       - package: ComposableArchitecture
       - package: swift-dependencies
         product: Dependencies
@@ -113,6 +121,8 @@ targets:
       - path: NightcapTests
     dependencies:
       - target: Nightcap
+      - package: NightcapKit
+        product: NightcapDomain
       - package: ComposableArchitecture
       - package: swift-dependencies
         product: Dependencies

@@ -1,31 +1,18 @@
 import Dependencies
-import DependenciesMacros
 import Foundation
 import IOKit
 import IOKit.pwr_mgt
+import NightcapDomain
 import os
 
-@DependencyClient
-struct PowerAssertionClient: Sendable {
-    var acquire: @Sendable (_ reason: String) -> Bool = { _ in false }
-    var release: @Sendable () -> Void
-}
-
 extension PowerAssertionClient: DependencyKey {
-    static let liveValue: PowerAssertionClient = {
+    public static let liveValue: PowerAssertionClient = {
         let holder = AssertionHolder()
         return Self(
             acquire: { holder.acquire(reason: $0) },
             release: { holder.release() }
         )
     }()
-}
-
-extension DependencyValues {
-    var powerAssertionClient: PowerAssertionClient {
-        get { self[PowerAssertionClient.self] }
-        set { self[PowerAssertionClient.self] = newValue }
-    }
 }
 
 private let logger = Logger(subsystem: "com.abdocodes.nightcap", category: "PowerAssertion")

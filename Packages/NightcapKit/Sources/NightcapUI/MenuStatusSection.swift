@@ -1,3 +1,4 @@
+import NightcapDomain
 import SwiftUI
 
 struct MenuStatusSection: View {

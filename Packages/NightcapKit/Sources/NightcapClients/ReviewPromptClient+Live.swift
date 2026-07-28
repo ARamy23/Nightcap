@@ -1,15 +1,10 @@
 import Dependencies
-import DependenciesMacros
 import Foundation
+import NightcapDomain
 import StoreKit
 
-@DependencyClient
-struct ReviewPromptClient: Sendable {
-    var requestIfAppropriate: @Sendable () -> Void
-}
-
 extension ReviewPromptClient: DependencyKey {
-    static let liveValue: ReviewPromptClient = .init(
+    public static let liveValue: ReviewPromptClient = .init(
         requestIfAppropriate: {
             let defaults = UserDefaults.standard
             let key = "reviewPrompt.lastRequestDate"
@@ -22,13 +17,4 @@ extension ReviewPromptClient: DependencyKey {
             SKStoreReviewController.requestReview()
         }
     )
-
-    static let testValue = ReviewPromptClient(requestIfAppropriate: {})
-}
-
-extension DependencyValues {
-    var reviewPromptClient: ReviewPromptClient {
-        get { self[ReviewPromptClient.self] }
-        set { self[ReviewPromptClient.self] = newValue }
-    }
 }
