@@ -236,6 +236,28 @@ targets:
       - package: ComposableArchitecture
         link: false
 
+  NightcapWatch:
+    type: application
+    platform: watchOS
+    deploymentTarget: 10.0
+    sources:
+      - path: Apps/Watch
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.abdocodes.nightcap.watch
+        PRODUCT_NAME: Nightcap
+        SWIFT_VERSION: 5.0
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Nightcap
+        INFOPLIST_KEY_WKApplication: YES
+        INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp: YES
+        CODE_SIGN_STYLE: Automatic
+    dependencies:
+      - target: NightcapDomain_watchOS
+      - target: NightcapCompanionUI_watchOS
+      - package: ComposableArchitecture
+        link: false
+
   NightcapTests:
     type: bundle.unit-test
     platform: macOS
