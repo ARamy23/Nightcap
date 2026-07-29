@@ -1051,3 +1051,132 @@ struct HotspotSuggestionTests {
         #expect(state.activeApps.map(\.displayName) == ["Ghostty"])
     }
 }
+
+/// When the Mac tells the companions anything at all.
+///
+/// This suite exists because publishing was once wired to a single reducer case
+/// — the network change — so adding an app, pausing one, or an app launching
+/// never reached the phone. The companions showed whatever the Mac was doing
+/// when they connected and then froze, which looks exactly like a transport
+/// fault. Every scenario below fails against that version.
+@MainActor
+@Suite("Feature: Telling the companions when something changes")
+struct PublishingToCompanionsTests {
+    private func makeStore(
+        running: Set<String> = [],
+        published: LockIsolated<[MacState]>
+    ) -> TestStore<AppFeature.State, AppFeature.Action> {
+        TestStore(initialState: AppFeature.State()) {
+            AppFeature()
+        } withDependencies: {
+            $0.defaultFileStorage = .inMemory
+            $0.appLifecycleClient.runningBundleIDs = { running }
+            $0.appLifecycleClient.runningApps = { [] }
+            $0.appLifecycleClient.events = { .finished }
+            $0.launchAtLoginClient.status = { .disabled }
+            $0.networkPathClient.isSatisfied = { .finished }
+            $0.powerAssertionClient.acquire = { _ in true }
+            $0.powerAssertionClient.release = {}
+            $0.reviewPromptClient.requestIfAppropriate = {}
+            $0.macStatePublisherClient.publish = { state in
+                published.withValue { $0.append(state) }
+            }
+        }
+    }
+
+    @Test("Scenario 1: adding an app tells the companions about it")
+    func addingAnAppPublishes() async {
+        // Given a Mac with nothing watched
+        let published = LockIsolated<[MacState]>([])
+        let store = makeStore(published: published)
+        store.exhaustivity = .off
+        await store.send(.onAppear)
+        published.withValue { $0.removeAll() }
+
+        // When an app is added
+        let xcode = WatchedApp(bundleID: "com.apple.dt.Xcode", displayName: "Xcode")
+        await store.send(.addAppRequested(xcode))
+        await store.finish()
+
+        // Then the companions are told, and the new app is in what they receive
+        // (alongside the default watched app the app ships with)
+        #expect(published.value.count >= 1)
+        #expect(published.value.last?.watchedApps.contains { $0.bundleID == xcode.bundleID } == true)
+    }
+
+    @Test("Scenario 2: pausing an app tells the companions it is paused")
+    func pausingPublishes() async {
+        // Given one watched app
+        let published = LockIsolated<[MacState]>([])
+        let store = makeStore(published: published)
+        store.exhaustivity = .off
+        let xcode = WatchedApp(bundleID: "com.apple.dt.Xcode", displayName: "Xcode")
+        await store.send(.addAppRequested(xcode))
+        published.withValue { $0.removeAll() }
+
+        // When it is paused
+        await store.send(.observationToggled(xcode.id, false))
+        await store.finish()
+
+        // Then the phone learns it is paused, rather than continuing to show it
+        // as actively watched
+        let sent = published.value.last?.watchedApps.first { $0.bundleID == xcode.bundleID }
+        #expect(sent?.isObserved == false)
+    }
+
+    @Test("Scenario 3: an app launching tells the companions the Mac is now held awake")
+    func launchPublishesAwakeState() async {
+        // Given a watched app that is not yet running. It must not be running at
+        // add time, or the add itself would publish the awake state and this
+        // scenario would pass without the launch ever being observed.
+        let published = LockIsolated<[MacState]>([])
+        let store = makeStore(published: published)
+        store.exhaustivity = .off
+        let xcode = WatchedApp(bundleID: "com.apple.dt.Xcode", displayName: "Xcode")
+        await store.send(.addAppRequested(xcode))
+        published.withValue { $0.removeAll() }
+
+        // When it launches
+        await store.send(.lifecycleEvent(.launched(bundleID: "com.apple.dt.Xcode")))
+        await store.finish()
+
+        // Then the companions are told the Mac is being kept awake — the single
+        // most important thing they display
+        #expect(published.value.last?.isAwakeHeld == true)
+        #expect(published.value.last?.runningWatchedIDs == ["com.apple.dt.Xcode"])
+    }
+
+    @Test("Scenario 4: losing the network still publishes, so hotspot can be suggested")
+    func networkLossPublishes() async {
+        let published = LockIsolated<[MacState]>([])
+        let store = makeStore(published: published)
+        store.exhaustivity = .off
+        await store.send(.onAppear)
+        published.withValue { $0.removeAll() }
+
+        await store.send(.networkPathChanged(isSatisfied: false))
+        await store.finish()
+
+        #expect(published.value.last?.hasLostNetwork == true)
+    }
+
+    @Test("Scenario 5: a change that the companions cannot see is not published")
+    func unrenderedChangeDoesNotPublish() async {
+        // Given a running Mac
+        let published = LockIsolated<[MacState]>([])
+        let store = makeStore(published: published)
+        store.exhaustivity = .off
+        await store.send(.onAppear)
+        await store.finish()
+        published.withValue { $0.removeAll() }
+
+        // When something changes that no companion renders — the candidate list
+        // for the Mac's own "Add Running App" menu
+        await store.send(.runningAppCandidatesRefreshRequested)
+        await store.finish()
+
+        // Then nothing is sent. Publishing on every action would burn the
+        // CloudKit quota on updates no one can see.
+        #expect(published.value.isEmpty)
+    }
+}

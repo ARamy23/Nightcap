@@ -1,5 +1,6 @@
 import ComposableArchitecture
 import Foundation
+import OSLog
 import Sharing
 
 @Reducer
@@ -14,6 +15,20 @@ public struct AppFeature {
         public var assertionHeld = false
         public var hasLostNetwork = false
 
+        /// Exactly the fields the companions render, and nothing else.
+        ///
+        /// Separate from `macState` because `macState.lastUpdated` is `Date()`,
+        /// freshly computed on every read — comparing two `macState` values is
+        /// therefore always unequal and useless as a change signal.
+        var companionSnapshot: CompanionSnapshot {
+            CompanionSnapshot(
+                isAwakeHeld: assertionHeld,
+                watchedApps: watchedApps,
+                runningWatchedIDs: runningWatchedIDs,
+                hasLostNetwork: hasLostNetwork
+            )
+        }
+
         /// What the companion apps see.
         public var macState: MacState {
             MacState(
@@ -26,6 +41,14 @@ public struct AppFeature {
         }
 
         public init() {}
+    }
+
+    /// The companion-visible slice of state, used only to decide when to publish.
+    struct CompanionSnapshot: Equatable {
+        let isAwakeHeld: Bool
+        let watchedApps: [WatchedApp]
+        let runningWatchedIDs: Set<String>
+        let hasLostNetwork: Bool
     }
 
     public enum Action {
@@ -164,13 +187,24 @@ public struct AppFeature {
                 let hasLostNetwork = !isSatisfied
                 guard hasLostNetwork != state.hasLostNetwork else { return .none }
                 state.hasLostNetwork = hasLostNetwork
-                return publishEffect(state)
+                return .none
 
             case .quitTapped:
                 assertion.release()
                 state.assertionHeld = false
                 quitter.quit()
                 return .none
+            }
+        }
+        // Publishing hangs off the state itself rather than off individual cases.
+        // It used to be wired to the network-change case alone, which meant
+        // adding an app, pausing one, or an app launching never reached the
+        // companions: they showed whatever the Mac happened to be doing at
+        // launch until the network flapped. Anything that changes what they
+        // render now publishes, and nothing has to remember to ask.
+        .onChange(of: \.companionSnapshot) { _, _ in
+            Reduce { state, _ in
+                publishEffect(state)
             }
         }
     }
@@ -180,7 +214,18 @@ public struct AppFeature {
     private func publishEffect(_ state: State) -> Effect<Action> {
         let macState = state.macState
         return .run { _ in
-            try? await publisher.publish(macState)
+            do {
+                try await publisher.publish(macState)
+            } catch {
+                // Deliberately not surfaced in the UI: a failed publish costs the
+                // user nothing on the Mac itself, and the menu bar is not the
+                // place to report it. But it must not vanish either — swallowing
+                // it makes a completely broken companion link look identical to a
+                // working one, from the outside and from the logs.
+                Logger.publishing.error(
+                    "Failed to publish Mac state to companions: \(error.localizedDescription, privacy: .public)"
+                )
+            }
         }
     }
 

@@ -25,6 +25,9 @@ struct MenuIntentTests {
             $0.powerAssertionClient.release = {}
             $0.launchAtLoginClient.status = { .enabled }
             $0.launchAtLoginClient.setEnabled = { _ in }
+            // Any change the companions render now publishes, so every scenario
+            // here reaches the publisher even though none is about publishing.
+            $0.macStatePublisherClient.publish = { _ in }
         } operation: {
             var state = AppFeature.State()
             state.$watchedApps.withLock { $0 = [] }
