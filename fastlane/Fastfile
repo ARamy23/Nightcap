@@ -291,6 +291,47 @@ lane :verify_phone_profile_has_container do
   end
 end
 
+desc "Mint iPhone + Watch dev profiles and prove they carry the attached devices"
+lane :provision_devices do
+  require_env!
+  connect_api_token!
+
+  # Registering a device does not retro-fit it into profiles minted earlier, so
+  # this must run after register_physical_devices or the build installs onto
+  # nothing.
+  register_physical_devices
+
+  require "json"
+  out = "#{Dir.tmpdir}/nightcap-devices.json"
+  sh("xcrun devicectl list devices --json-output #{out} > /dev/null 2>&1")
+  attached = (JSON.parse(File.read(out)).dig("result", "devices") || [])
+    .select { |d| d.dig("hardwareProperties", "reality") == "physical" }
+    .map { |d| d.dig("hardwareProperties", "udid").to_s.downcase }
+    .reject(&:empty?)
+
+  UI.user_error!("No physical devices attached") if attached.empty?
+
+  [phone_app_id, watch_app_id].each do |app_id|
+    path = get_provisioning_profile(
+      api_key: nightcap_api_key,
+      app_identifier: app_id,
+      platform: "ios",
+      development: true,
+      force: true
+    )
+    path = lane_context[SharedValues::SIGH_PROFILE_PATH] || path
+
+    plist = sh("security cms -D -i #{Shellwords.escape(path)} 2>/dev/null || true")
+    missing = attached.reject { |udid| plist.downcase.include?(udid) }
+
+    if missing.empty?
+      UI.success "#{app_id}: profile carries all #{attached.count} attached device(s)"
+    else
+      UI.user_error!("#{app_id}: profile is missing device(s) #{missing.join(', ')}")
+    end
+  end
+end
+
 desc "Build the Mac app signed for development, with CloudKit entitlements"
 lane :build_mac_with_cloudkit do
   require_env!

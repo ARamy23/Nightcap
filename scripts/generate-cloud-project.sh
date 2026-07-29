@@ -42,24 +42,53 @@ targets:
         CODE_SIGN_STYLE: ${NIGHTCAP_SIGN_STYLE:-Automatic}
         CODE_SIGN_IDENTITY: ${NIGHTCAP_SIGN_IDENTITY:-Apple Development}
         PROVISIONING_PROFILE_SPECIFIER: ${NIGHTCAP_PROFILE:-}
-    # NOTE: NightcapCloudTransport is deliberately NOT linked here. The app's
-    # transport liveValue is still the stub, so linking the framework only
-    # duplicates the package objects the app already carries. What this overlay
-    # exists for is the entitlement and the signing identity.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: \$(inherited) NIGHTCAP_CLOUDKIT
+    # The Mac is the only publisher: if it does not link the transport then
+    # nothing ever reaches the container and the companions wait forever. Safe to
+    # link — NightcapCloudTransport declares every dependency link: false, so it
+    # contributes only its own objects, not a second copy of the domain.
+    dependencies:
+      - target: NightcapCloudTransport_macOS
 
+  # The companions need the container entitlement too, not just the Mac: without
+  # it a device build signs fine and then finds no container at runtime, which
+  # looks exactly like "the Mac never published".
   NightcapPhone:
+    entitlements:
+      path: Nightcap/NightcapPhoneCloud.entitlements
+      properties:
+        com.apple.developer.icloud-services:
+          - CloudKit
+        com.apple.developer.icloud-container-identifiers:
+          - $CONTAINER
     settings:
       base:
         DEVELOPMENT_TEAM: $TEAM_ID
         CODE_SIGN_STYLE: Automatic
         PRODUCT_BUNDLE_IDENTIFIER: $PREFIX.phone
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: \$(inherited) NIGHTCAP_CLOUDKIT
+    # Safe to link despite the Mac target's note: NightcapCloudTransport declares
+    # every dependency link: false, so this adds only its own objects — the
+    # domain and package objects still arrive once, via NightcapCompanionUI.
+    dependencies:
+      - target: NightcapCloudTransport_iOS
 
   NightcapWatch:
+    entitlements:
+      path: Nightcap/NightcapWatchCloud.entitlements
+      properties:
+        com.apple.developer.icloud-services:
+          - CloudKit
+        com.apple.developer.icloud-container-identifiers:
+          - $CONTAINER
     settings:
       base:
         DEVELOPMENT_TEAM: $TEAM_ID
         CODE_SIGN_STYLE: Automatic
         PRODUCT_BUNDLE_IDENTIFIER: $PREFIX.watch
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: \$(inherited) NIGHTCAP_CLOUDKIT
+    dependencies:
+      - target: NightcapCloudTransport_watchOS
 EOF
 
 xcodegen --spec project.cloud.local.yml
