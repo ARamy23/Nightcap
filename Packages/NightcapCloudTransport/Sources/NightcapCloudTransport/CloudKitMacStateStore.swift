@@ -10,7 +10,32 @@ import os
 /// operate, and nothing is shared between users. It does, however, mean the app
 /// is no longer network-free — see PRIVACY.md.
 public final class CloudKitMacStateStore: @unchecked Sendable {
-    public static let containerIdentifier = "iCloud.com.abdocodes.nightcap"
+    /// The container this build is entitled to use, derived from the bundle
+    /// identifier so it follows whoever signed the build with no configuration.
+    ///
+    /// This was hardcoded to one account's container. Since the container
+    /// belongs to a specific Apple account, anyone signing with their own team
+    /// — the only way to run this at all — got "Couldn't get container
+    /// configuration from the server" and published nothing, silently.
+    ///
+    /// The companions' suffixes are stripped because all three apps share one
+    /// container: `…nightcap.phone` must still look for `iCloud.…nightcap`.
+    /// That is also why `CKContainer.default()` is not a substitute — it would
+    /// derive `iCloud.…nightcap.phone` for the companions.
+    ///
+    /// Reading the signed entitlement would be more literal, but
+    /// `SecTaskCopyValueForEntitlement` is macOS-only: it compiles on the host
+    /// and fails the iOS build.
+    public static let containerIdentifier: String = {
+        guard var base = Bundle.main.bundleIdentifier else {
+            return "iCloud.com.abdocodes.nightcap"
+        }
+        for suffix in [".phone", ".watch"] where base.hasSuffix(suffix) {
+            base = String(base.dropLast(suffix.count))
+            break
+        }
+        return "iCloud.\(base)"
+    }()
 
     private static let recordType = "MacState"
     /// One record per user. The Mac is the only writer.
@@ -63,8 +88,17 @@ public final class CloudKitMacStateStore: @unchecked Sendable {
             let record = try await database.record(for: recordID)
             let payload = record[MacStateRecordCoding.payloadKey] as? Data
             switch try MacStateRecordCoding.interpretFetch(payload: payload) {
-            case .noMacHasPublished: return nil
-            case let .state(state): return state
+            case .noMacHasPublished:
+                logger.debug("Record exists but carries no payload yet")
+                return nil
+            case let .state(state):
+                // The one positive signal that the whole link works. Without it
+                // a silent success and a silent failure look identical from the
+                // outside, which is exactly how the container mismatch survived.
+                logger.debug(
+                    "Fetched Mac state from \(Self.containerIdentifier, privacy: .public): awake=\(state.isAwakeHeld), watched=\(state.watchedApps.count)"
+                )
+                return state
             }
         } catch let error as CKError where error.code == .unknownItem {
             // The Mac has never published. Not an error: it just isn't running.
