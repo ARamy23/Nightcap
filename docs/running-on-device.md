@@ -48,6 +48,30 @@ Run the `Nightcap` scheme on your Mac first so it publishes, then `NightcapPhone
 on the device. The watch app is standalone (`WKWatchOnly`), so it installs
 directly rather than riding along with the phone app.
 
+## Devices must be connected before you touch the destination
+
+Check first:
+
+```bash
+xcrun devicectl list devices | grep -E "Ordis|Watch"
+xcrun devicectl device info details --device <UDID> | grep "Device State"
+```
+
+`available (paired)` in the list is **not** the same as reachable. The detail
+view's `Device State` is the one that matters: `connected` is good,
+`disconnected` or `connecting` is not.
+
+Selecting a run destination — not merely running — for a device whose state is
+not `connected` makes Xcode block indefinitely waiting for it. That wedges the
+whole MCP tool service, so every later call queues behind it and times out. It
+recovers on its own after several minutes; do not force-quit Xcode to clear it,
+especially with another project open in a second window.
+
+The Watch is far more prone to this than the iPhone: it drops to `disconnected`
+whenever it locks. Put it on your wrist, unlocked, near the Mac, and confirm
+`connected` immediately before selecting it. A cable makes the iPhone reliable;
+the Watch has no such option.
+
 ## Verifying without Xcode
 
 The app entry points can be type-checked against the SwiftPM-built modules,
