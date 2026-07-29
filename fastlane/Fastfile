@@ -166,6 +166,48 @@ lane :register_this_mac do
   end
 end
 
+desc "Register every physically attached iPhone/Watch in the developer account"
+lane :register_physical_devices do
+  require_env!
+  connect_api_token!
+
+  # devicectl is the only source that reports a paired Watch's UDID without
+  # Xcode. `reality == physical` filters simulators out; simulator UUIDs are
+  # not registrable and the API rejects them.
+  require "json"
+  out = "#{Dir.tmpdir}/nightcap-devices.json"
+  sh("xcrun devicectl list devices --json-output #{out} > /dev/null 2>&1")
+  devices = JSON.parse(File.read(out)).dig("result", "devices") || []
+
+  registered = Spaceship::ConnectAPI::Device.all
+
+  devices.each do |device|
+    hardware = device["hardwareProperties"] || {}
+    next unless hardware["reality"] == "physical"
+
+    udid = hardware["udid"].to_s.strip
+    next if udid.empty?
+
+    name = device.dig("deviceProperties", "name").to_s.strip
+    name = "Device #{udid[0, 8]}" if name.empty?
+
+    if (existing = registered.find { |d| d.udid.to_s.casecmp?(udid) })
+      UI.success "Already registered: #{existing.name}"
+      next
+    end
+
+    # Watches register under the IOS platform — BundleIdPlatform has no
+    # watchOS case, and the portal files them alongside iPhones.
+    UI.message "Registering #{name} (#{hardware['platform']})"
+    Spaceship::ConnectAPI::Device.create(
+      name: name,
+      platform: Spaceship::ConnectAPI::BundleIdPlatform::IOS,
+      udid: udid
+    )
+    UI.success "Registered #{name}"
+  end
+end
+
 desc "Enable CloudKit + Push on the Mac, iPhone and Watch App IDs"
 lane :enable_icloud_capabilities do
   require_env!

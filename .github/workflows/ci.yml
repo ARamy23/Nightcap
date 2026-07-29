@@ -30,6 +30,16 @@ jobs:
         working-directory: Packages/NightcapUI
         run: swift test
 
+      - name: Run companion UI tests
+        working-directory: Packages/NightcapCompanionUI
+        run: swift test
+
+      # Two thresholds: overall UI coverage, and the share of it reached by the
+      # snapshot suites alone — a high total built only from string assertions
+      # would leave layout regressions invisible.
+      - name: Check UI and snapshot coverage
+        run: ./scripts/check-ui-coverage.sh 80 60
+
   test:
     name: Build and Test
     runs-on: macos-15

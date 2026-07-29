@@ -76,40 +76,27 @@ struct MacStatusRow: View {
     let isWaiting: Bool
     let activeCount: Int
 
+    private var presentation: MacStatusPresentation {
+        MacStatusPresentation(
+            isAwakeHeld: isAwakeHeld,
+            isWaiting: isWaiting,
+            activeCount: activeCount
+        )
+    }
+
     var body: some View {
         HStack {
-            Image(systemName: iconName)
+            Image(systemName: presentation.iconName)
                 .font(.title2)
-                .foregroundStyle(iconColor)
+                .foregroundStyle(presentation.iconColor)
                 .accessibilityHidden(true)
             VStack(alignment: .leading) {
-                Text(title).font(.headline)
-                Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+                Text(presentation.title).font(.headline)
+                Text(presentation.subtitle).font(.subheadline).foregroundStyle(.secondary)
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title). \(subtitle)")
-    }
-
-    private var iconName: String {
-        if isWaiting { return "questionmark.circle" }
-        return isAwakeHeld ? "cup.and.saucer.fill" : "moon.zzz"
-    }
-
-    private var iconColor: Color {
-        if isWaiting { return .secondary }
-        return isAwakeHeld ? .green : .secondary
-    }
-
-    private var title: String {
-        if isWaiting { return "Waiting for your Mac" }
-        return isAwakeHeld ? "Keeping Mac Awake" : "Idle"
-    }
-
-    private var subtitle: String {
-        if isWaiting { return "No status received yet" }
-        guard isAwakeHeld else { return "Sleep allowed" }
-        return activeCount == 1 ? "1 app active" : "\(activeCount) apps active"
+        .accessibilityLabel(presentation.accessibilityLabel)
     }
 }
 
@@ -118,10 +105,14 @@ struct WatchedAppRow: View {
     let isRunning: Bool
     let onToggle: (Bool) -> Void
 
+    private var presentation: WatchedAppRowPresentation {
+        WatchedAppRowPresentation(isObserved: app.isObserved, isRunning: isRunning)
+    }
+
     var body: some View {
         HStack {
-            Image(systemName: iconName)
-                .foregroundStyle(iconColor)
+            Image(systemName: presentation.iconName)
+                .foregroundStyle(presentation.iconColor)
                 .accessibilityHidden(true)
             VStack(alignment: .leading) {
                 Text(app.displayName)
@@ -134,16 +125,6 @@ struct WatchedAppRow: View {
                 .labelsHidden()
                 .accessibilityLabel("Watch \(app.displayName)")
         }
-    }
-
-    private var iconName: String {
-        guard app.isObserved else { return "pause.circle" }
-        return isRunning ? "circle.fill" : "circle"
-    }
-
-    private var iconColor: Color {
-        guard app.isObserved else { return .secondary }
-        return isRunning ? .green : .secondary
     }
 }
 

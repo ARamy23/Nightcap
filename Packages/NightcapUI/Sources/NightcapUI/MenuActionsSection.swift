@@ -30,9 +30,9 @@ struct MenuActionsSection: View {
 
         Divider()
 
-        Button("Quit Nightcap") {
-            onQuit()
-        }
-        .keyboardShortcut("q")
+        // Passed directly rather than wrapped in a closure: a wrapper body would
+        // be an uncoverable region, and there is nothing for it to add.
+        Button("Quit Nightcap", action: onQuit)
+            .keyboardShortcut("q")
     }
 }

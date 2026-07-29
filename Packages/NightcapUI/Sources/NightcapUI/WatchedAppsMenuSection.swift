@@ -16,15 +16,23 @@ struct WatchedAppsMenuSection: View {
                 WatchedAppMenu(
                     app: app,
                     isRunning: runningWatchedIDs.contains(app.bundleID),
-                    onObservationToggle: { isObserved in
-                        onObservationToggle(app.id, isObserved)
-                    },
-                    onRemove: {
-                        onRemove(app.id)
-                    }
+                    onObservationToggle: { setObservation(app, to: $0) },
+                    onRemove: { remove(app) }
                 )
             }
         }
+    }
+
+    // Named rather than inline closures so tests can invoke the intent directly:
+    // the bodies below sit inside a `Menu`, which SwiftUI does not evaluate until
+    // the menu is opened, so an inline closure here is unreachable from a test.
+
+    func setObservation(_ app: WatchedApp, to isObserved: Bool) {
+        onObservationToggle(app.id, isObserved)
+    }
+
+    func remove(_ app: WatchedApp) {
+        onRemove(app.id)
     }
 }
 
