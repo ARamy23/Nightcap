@@ -30,6 +30,7 @@ public struct CompanionFeature {
     private enum CancelID { case states }
 
     @Dependency(\.macStateTransportClient) var transport
+    @Dependency(\.hotspotNotifierClient) var notifier
 
     public init() {}
 
@@ -37,12 +38,18 @@ public struct CompanionFeature {
         Reduce { state, action in
             switch action {
             case .onAppear:
-                return .run { send in
-                    for await macState in transport.states() {
-                        await send(.macStateReceived(macState))
+                return .merge(
+                    .run { send in
+                        for await macState in transport.states() {
+                            await send(.macStateReceived(macState))
+                        }
                     }
-                }
-                .cancellable(id: CancelID.states, cancelInFlight: true)
+                    .cancellable(id: CancelID.states, cancelInFlight: true),
+                    // Asked here rather than at launch so the prompt arrives
+                    // with the screen that explains what it is for. Declining
+                    // costs only the alert; the in-app banner still works.
+                    .run { _ in _ = await notifier.requestAuthorization() }
+                )
 
             case .onDisappear:
                 // Stop listening when the companion goes to the background, so a
@@ -50,10 +57,21 @@ public struct CompanionFeature {
                 return .cancel(id: CancelID.states)
 
             case let .macStateReceived(macState):
+                // Edge, not level: the transport re-delivers the same state on
+                // every poll, so notifying on the value would fire every 30
+                // seconds for as long as the Mac stayed offline.
+                let shouldAlert = macState.shouldSuggestHotspot
+                    && !state.macState.shouldSuggestHotspot
                 state.macState = macState
                 state.hasConnected = true
                 state.failureMessage = nil
-                return .none
+                guard shouldAlert else { return .none }
+                return .run { _ in
+                    await notifier.notify(
+                        "Your Mac lost its network",
+                        "Turn on Personal Hotspot to keep it online."
+                    )
+                }
 
             case let .observationToggled(bundleID, isObserved):
                 return .run { send in

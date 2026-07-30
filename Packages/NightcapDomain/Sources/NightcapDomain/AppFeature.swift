@@ -14,6 +14,7 @@ public struct AppFeature {
         public var launchAtLoginStatus: LaunchAtLoginStatus = .unknown
         public var assertionHeld = false
         public var hasLostNetwork = false
+        public var connection: NetworkConnection = .other
 
         /// Exactly the fields the companions render, and nothing else.
         ///
@@ -25,7 +26,8 @@ public struct AppFeature {
                 isAwakeHeld: assertionHeld,
                 watchedApps: watchedApps,
                 runningWatchedIDs: runningWatchedIDs,
-                hasLostNetwork: hasLostNetwork
+                hasLostNetwork: hasLostNetwork,
+                connection: connection
             )
         }
 
@@ -36,7 +38,8 @@ public struct AppFeature {
                 watchedApps: watchedApps,
                 runningWatchedIDs: runningWatchedIDs,
                 lastUpdated: Date(),
-                hasLostNetwork: hasLostNetwork
+                hasLostNetwork: hasLostNetwork,
+                connection: connection
             )
         }
 
@@ -49,6 +52,7 @@ public struct AppFeature {
         let watchedApps: [WatchedApp]
         let runningWatchedIDs: Set<String>
         let hasLostNetwork: Bool
+        let connection: NetworkConnection
     }
 
     public enum Action {
@@ -62,10 +66,11 @@ public struct AppFeature {
         case launchAtLoginToggled(Bool)
         case launchAtLoginStatusUpdated(LaunchAtLoginStatus)
         case networkPathChanged(isSatisfied: Bool)
+        case connectionChanged(NetworkConnection)
         case quitTapped
     }
 
-    private enum CancelID { case lifecycle, launchAtLogin, networkPath }
+    private enum CancelID { case lifecycle, launchAtLogin, networkPath, connection }
 
     @Dependency(\.appLifecycleClient) var lifecycle
     @Dependency(\.powerAssertionClient) var assertion
@@ -96,7 +101,13 @@ public struct AppFeature {
                             await send(.networkPathChanged(isSatisfied: isSatisfied))
                         }
                     }
-                    .cancellable(id: CancelID.networkPath, cancelInFlight: true)
+                    .cancellable(id: CancelID.networkPath, cancelInFlight: true),
+                    .run { send in
+                        for await connection in networkPath.connection() {
+                            await send(.connectionChanged(connection))
+                        }
+                    }
+                    .cancellable(id: CancelID.connection, cancelInFlight: true)
                 )
 
             case let .lifecycleEvent(.launched(id)):
@@ -187,6 +198,14 @@ public struct AppFeature {
                 let hasLostNetwork = !isSatisfied
                 guard hasLostNetwork != state.hasLostNetwork else { return .none }
                 state.hasLostNetwork = hasLostNetwork
+                return .none
+
+            case let .connectionChanged(connection):
+                guard connection != state.connection else { return .none }
+                state.connection = connection
+                // Kept in step so the two cannot disagree: whichever stream
+                // reports first, the companions see a consistent picture.
+                state.hasLostNetwork = !connection.isConnected
                 return .none
 
             case .quitTapped:

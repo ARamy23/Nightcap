@@ -131,6 +131,9 @@ extension DependencyValues {
 @DependencyClient
 public struct NetworkPathClient: Sendable {
     public var isSatisfied: @Sendable () -> AsyncStream<Bool> = { .finished }
+    /// How the Mac is connected, not merely whether it is. Separate from
+    /// `isSatisfied` so the existing reachability behaviour is unchanged.
+    public var connection: @Sendable () -> AsyncStream<NetworkConnection> = { .finished }
 }
 
 extension NetworkPathClient: TestDependencyKey {
@@ -141,5 +144,40 @@ extension DependencyValues {
     public var networkPathClient: NetworkPathClient {
         get { self[NetworkPathClient.self] }
         set { self[NetworkPathClient.self] = newValue }
+    }
+}
+
+// MARK: - Companion notifications
+
+/// Alerting the user on their phone or watch when the Mac needs a hotspot.
+///
+/// The in-app banner only helps if the companion is already open, which is
+/// exactly when the user least needs telling — the point is to be interrupted
+/// while doing something else.
+@DependencyClient
+public struct HotspotNotifierClient: Sendable {
+    /// Asked for once, on first launch. Returns whether alerts are permitted.
+    public var requestAuthorization: @Sendable () async -> Bool = { false }
+    public var notify: @Sendable (_ title: String, _ body: String) async -> Void
+}
+
+extension HotspotNotifierClient: TestDependencyKey {
+    public static let testValue = HotspotNotifierClient()
+    public static let noop = HotspotNotifierClient(
+        requestAuthorization: { false },
+        notify: { _, _ in }
+    )
+}
+
+extension HotspotNotifierClient: DependencyKey {
+    // Companions override this with the real UserNotifications adapter; the Mac
+    // never uses it.
+    public static let liveValue = HotspotNotifierClient.noop
+}
+
+extension DependencyValues {
+    public var hotspotNotifierClient: HotspotNotifierClient {
+        get { self[HotspotNotifierClient.self] }
+        set { self[HotspotNotifierClient.self] = newValue }
     }
 }

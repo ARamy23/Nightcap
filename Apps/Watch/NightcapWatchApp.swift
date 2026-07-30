@@ -19,6 +19,7 @@ struct NightcapWatchApp: App {
         #if NIGHTCAP_CLOUDKIT
         prepareDependencies {
             $0.macStateTransportClient = .cloudKit()
+            $0.hotspotNotifierClient = .userNotifications
         }
         #endif
     }

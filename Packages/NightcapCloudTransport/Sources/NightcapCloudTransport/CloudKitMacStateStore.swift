@@ -96,7 +96,12 @@ public final class CloudKitMacStateStore: @unchecked Sendable {
                 // a silent success and a silent failure look identical from the
                 // outside, which is exactly how the container mismatch survived.
                 logger.debug(
-                    "Fetched Mac state from \(Self.containerIdentifier, privacy: .public): awake=\(state.isAwakeHeld), watched=\(state.watchedApps.count)"
+                    """
+                    Fetched Mac state from \(Self.containerIdentifier, privacy: .public): \
+                    awake=\(state.isAwakeHeld), watched=\(state.watchedApps.count), \
+                    connection=\(state.connection.rawValue, privacy: .public), \
+                    suggestHotspot=\(state.shouldSuggestHotspot)
+                    """
                 )
                 return state
             }

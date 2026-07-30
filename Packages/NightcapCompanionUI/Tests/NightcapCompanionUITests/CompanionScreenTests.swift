@@ -24,6 +24,7 @@ struct CompanionScreenTests {
             // transport. Without a stub that reaches an unimplemented dependency
             // and the test passes or fails on timing rather than on behaviour.
             $0.macStateTransportClient = .stub(initial: macState)
+            $0.hotspotNotifierClient = .noop
         } operation: {
             var state = CompanionFeature.State()
             state.macState = macState

@@ -413,6 +413,7 @@ struct LaunchAtLoginFeature {
             $0.launchAtLoginClient.status = { .disabled }
             $0.launchAtLoginClient.setEnabled = { _ in throw TestEnv.SimulatedError() }
             $0.networkPathClient.isSatisfied = { .finished }
+            $0.networkPathClient.connection = { .finished }
             $0.macStatePublisherClient.publish = { _ in }
             $0.powerAssertionClient.acquire = { _ in true }
             $0.powerAssertionClient.release = {}
@@ -526,6 +527,7 @@ private struct TestEnv {
             // Scenarios drive network changes explicitly rather than through a
             // live path monitor, and publishing to companions is off by default.
             $0.networkPathClient.isSatisfied = { .finished }
+            $0.networkPathClient.connection = { .finished }
             $0.macStatePublisherClient.publish = { _ in }
             $0.powerAssertionClient.acquire = { reason in
                 acquired.withValue { $0.append(reason) }
@@ -557,6 +559,7 @@ struct CompanionFeatureTests {
             CompanionFeature()
         } withDependencies: {
             $0.macStateTransportClient = .stub(initial: .preview)
+            $0.hotspotNotifierClient = .noop
         }
 
         // When the companion appears
@@ -590,6 +593,7 @@ struct CompanionFeatureTests {
             CompanionFeature()
         } withDependencies: {
             $0.macStateTransportClient = .stub(initial: .preview)
+            $0.hotspotNotifierClient = .noop
         }
         await store.send(.onAppear)
         await store.receive(\.macStateReceived) {
@@ -909,6 +913,7 @@ struct LaunchAtLoginReportingFeature {
             $0.launchAtLoginClient.status = { .requiresApproval }
             $0.launchAtLoginClient.setEnabled = { _ in }
             $0.networkPathClient.isSatisfied = { .finished }
+            $0.networkPathClient.connection = { .finished }
             $0.macStatePublisherClient.publish = { _ in }
             $0.powerAssertionClient.acquire = { _ in true }
             $0.powerAssertionClient.release = {}
@@ -944,6 +949,7 @@ struct LaunchAtLoginReportingFeature {
             $0.launchAtLoginClient.status = { .error("Login item not found in bundle.") }
             $0.launchAtLoginClient.setEnabled = { _ in }
             $0.networkPathClient.isSatisfied = { .finished }
+            $0.networkPathClient.connection = { .finished }
             $0.macStatePublisherClient.publish = { _ in }
             $0.powerAssertionClient.acquire = { _ in true }
             $0.powerAssertionClient.release = {}
@@ -1075,6 +1081,7 @@ struct PublishingToCompanionsTests {
             $0.appLifecycleClient.events = { .finished }
             $0.launchAtLoginClient.status = { .disabled }
             $0.networkPathClient.isSatisfied = { .finished }
+            $0.networkPathClient.connection = { .finished }
             $0.powerAssertionClient.acquire = { _ in true }
             $0.powerAssertionClient.release = {}
             $0.reviewPromptClient.requestIfAppropriate = {}
@@ -1178,5 +1185,202 @@ struct PublishingToCompanionsTests {
         // Then nothing is sent. Publishing on every action would burn the
         // CloudKit quota on updates no one can see.
         #expect(published.value.isEmpty)
+    }
+}
+
+/// Which connection the Mac is on, and what that means for the hotspot nudge.
+@Suite("Feature: Knowing how the Mac is connected")
+struct NetworkConnectionTests {
+    @Test("Scenario 1: a hotspot is worth suggesting unless already tethered")
+    func benefitsUnlessAlreadyTethered() {
+        #expect(NetworkConnection.none.wouldBenefitFromHotspot)
+        #expect(!NetworkConnection.hotspot.wouldBenefitFromHotspot)
+        // .other means "unknown", which must not suppress the nudge: an older
+        // Mac never reports a type, and swallowing the warning for those users
+        // is worse than an occasional redundant one.
+        #expect(NetworkConnection.other.wouldBenefitFromHotspot)
+    }
+
+    @Test("Scenario 2: a Mac already on a hotspot is not told to turn one on")
+    func alreadyTetheredIsNotNagged() {
+        // This is the whole reason the connection type is tracked: on a hotspot
+        // the Mac has no network of its own, so the old boolean would have
+        // nagged the user to enable the hotspot they were already using.
+        #expect(!NetworkConnection.hotspot.wouldBenefitFromHotspot)
+        #expect(NetworkConnection.hotspot.isConnected)
+    }
+
+    @Test("Scenario 3: only .none counts as disconnected", arguments: [
+        NetworkConnection.wifi, .wired, .hotspot, .other,
+    ])
+    func everythingElseIsConnected(connection: NetworkConnection) {
+        #expect(connection.isConnected)
+    }
+
+    @Test("Scenario 4: an awake Mac on a hotspot is not nagged")
+    func awakeOnHotspotIsNotNagged() {
+        let state = MacState(
+            isAwakeHeld: true,
+            lastUpdated: .distantPast,
+            hasLostNetwork: true,
+            connection: .hotspot
+        )
+        #expect(!state.shouldSuggestHotspot)
+    }
+
+    @Test("Scenario 5: an awake Mac with no network at all is nagged")
+    func awakeAndOfflineIsNagged() {
+        let state = MacState(
+            isAwakeHeld: true,
+            lastUpdated: .distantPast,
+            hasLostNetwork: true,
+            connection: .none
+        )
+        #expect(state.shouldSuggestHotspot)
+    }
+
+    @Test("Scenario 6: an older Mac that sends no connection still works")
+    func olderMacWithoutConnectionField() throws {
+        // Older Macs send hasLostNetwork and no connection. Decoding must not
+        // silently report them as connected-and-fine, or the nudge disappears
+        // for exactly the users who have not updated.
+        let json = """
+        {
+          "isAwakeHeld": true,
+          "watchedApps": [],
+          "runningWatchedIDs": [],
+          "lastUpdated": 0,
+          "hasLostNetwork": true
+        }
+        """
+        let decoded = try JSONDecoder().decode(MacState.self, from: Data(json.utf8))
+        #expect(decoded.connection == .none)
+        #expect(decoded.shouldSuggestHotspot)
+    }
+
+    @Test("Scenario 7b: an older, online Mac decodes as connected")
+    func olderMacOnline() throws {
+        let json = """
+        {
+          "isAwakeHeld": true,
+          "watchedApps": [],
+          "runningWatchedIDs": [],
+          "lastUpdated": 0,
+          "hasLostNetwork": false
+        }
+        """
+        let decoded = try JSONDecoder().decode(MacState.self, from: Data(json.utf8))
+        #expect(decoded.connection == .other)
+        #expect(!decoded.shouldSuggestHotspot)
+    }
+}
+
+/// Telling the user on their phone, when the app is not open.
+@MainActor
+@Suite("Feature: Alerting the phone when the Mac drops offline")
+struct HotspotNotificationTests {
+    private func offlineState(awake: Bool = true) -> MacState {
+        MacState(
+            isAwakeHeld: awake,
+            watchedApps: [WatchedApp(bundleID: "com.apple.dt.Xcode", displayName: "Xcode")],
+            runningWatchedIDs: awake ? ["com.apple.dt.Xcode"] : [],
+            lastUpdated: Date(timeIntervalSince1970: 0),
+            hasLostNetwork: true,
+            connection: .none
+        )
+    }
+
+    private func onlineState() -> MacState {
+        MacState(
+            isAwakeHeld: true,
+            watchedApps: [WatchedApp(bundleID: "com.apple.dt.Xcode", displayName: "Xcode")],
+            runningWatchedIDs: ["com.apple.dt.Xcode"],
+            lastUpdated: Date(timeIntervalSince1970: 0),
+            hasLostNetwork: false,
+            connection: .wifi
+        )
+    }
+
+    private func makeStore(
+        notified: LockIsolated<[String]>
+    ) -> TestStore<CompanionFeature.State, CompanionFeature.Action> {
+        TestStore(initialState: CompanionFeature.State()) {
+            CompanionFeature()
+        } withDependencies: {
+            $0.macStateTransportClient = .stub()
+            $0.hotspotNotifierClient = .noop
+            $0.hotspotNotifierClient.notify = { title, _ in
+                notified.withValue { $0.append(title) }
+            }
+        }
+    }
+
+    @Test("Scenario 1: the phone is told when the Mac drops offline")
+    func notifiesOnGoingOffline() async {
+        let notified = LockIsolated<[String]>([])
+        let store = makeStore(notified: notified)
+        store.exhaustivity = .off
+
+        await store.send(.macStateReceived(offlineState()))
+        await store.finish()
+
+        #expect(notified.value == ["Your Mac lost its network"])
+    }
+
+    @Test("Scenario 2: repeated polls of the same offline state notify only once")
+    func doesNotRenotifyOnEveryPoll() async {
+        // The transport re-delivers the same snapshot every 30 seconds. Level
+        // triggering here would mean a notification twice a minute for as long
+        // as the Mac stayed offline.
+        let notified = LockIsolated<[String]>([])
+        let store = makeStore(notified: notified)
+        store.exhaustivity = .off
+
+        await store.send(.macStateReceived(offlineState()))
+        await store.send(.macStateReceived(offlineState()))
+        await store.send(.macStateReceived(offlineState()))
+        await store.finish()
+
+        #expect(notified.value.count == 1)
+    }
+
+    @Test("Scenario 3: coming back online and dropping again notifies again")
+    func renotifiesAfterRecovery() async {
+        let notified = LockIsolated<[String]>([])
+        let store = makeStore(notified: notified)
+        store.exhaustivity = .off
+
+        await store.send(.macStateReceived(offlineState()))
+        await store.send(.macStateReceived(onlineState()))
+        await store.send(.macStateReceived(offlineState()))
+        await store.finish()
+
+        #expect(notified.value.count == 2)
+    }
+
+    @Test("Scenario 4: a Mac that is merely asleep does not notify")
+    func sleepingMacDoesNotNotify() async {
+        let notified = LockIsolated<[String]>([])
+        let store = makeStore(notified: notified)
+        store.exhaustivity = .off
+
+        await store.send(.macStateReceived(offlineState(awake: false)))
+        await store.finish()
+
+        #expect(notified.value.isEmpty)
+    }
+
+    @Test("Scenario 5: a Mac already on a hotspot does not notify")
+    func hotspotMacDoesNotNotify() async {
+        let notified = LockIsolated<[String]>([])
+        let store = makeStore(notified: notified)
+        store.exhaustivity = .off
+
+        var tethered = offlineState()
+        tethered.connection = .hotspot
+        await store.send(.macStateReceived(tethered))
+        await store.finish()
+
+        #expect(notified.value.isEmpty)
     }
 }
