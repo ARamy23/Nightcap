@@ -560,6 +560,7 @@ struct CompanionFeatureTests {
         } withDependencies: {
             $0.macStateTransportClient = .stub(initial: .preview)
             $0.hotspotNotifierClient = .noop
+            $0.date = .constant(Date(timeIntervalSince1970: 1_000_000))
         }
 
         // When the companion appears
@@ -594,6 +595,7 @@ struct CompanionFeatureTests {
         } withDependencies: {
             $0.macStateTransportClient = .stub(initial: .preview)
             $0.hotspotNotifierClient = .noop
+            $0.date = .constant(Date(timeIntervalSince1970: 1_000_000))
         }
         await store.send(.onAppear)
         await store.receive(\.macStateReceived) {
@@ -623,6 +625,10 @@ struct CompanionFeatureTests {
         } withDependencies: {
             $0.macStateTransportClient.states = { .finished }
             $0.macStateTransportClient.setObservation = { _, _ in throw Unreachable() }
+            $0.hotspotNotifierClient = .noop
+            // Just after MacState.preview's own timestamp, so the snapshot reads
+            // as fresh and this stays a test about the failure banner.
+            $0.date = .constant(Date(timeIntervalSince1970: 1_800_000_030))
         }
 
         // When the user toggles an app
@@ -1002,6 +1008,10 @@ struct FailureBannerFeature {
         } withDependencies: {
             $0.macStateTransportClient.states = { .finished }
             $0.macStateTransportClient.setObservation = { _, _ in throw Unreachable() }
+            $0.hotspotNotifierClient = .noop
+            // Just after MacState.preview's timestamp, so the snapshot reads as
+            // fresh and this stays a test about the failure banner.
+            $0.date = .constant(Date(timeIntervalSince1970: 1_800_000_030))
         }
         await store.send(.observationToggled("com.mitchellh.ghostty", false))
         await store.receive(\.failed) {
@@ -1279,12 +1289,16 @@ struct NetworkConnectionTests {
 @MainActor
 @Suite("Feature: Alerting the phone when the Mac drops offline")
 struct HotspotNotificationTests {
+    /// Fixed clock, with reports dated just before it. A stale timestamp would
+    /// trip the lost-contact alert instead, which is a different scenario.
+    private let now = Date(timeIntervalSince1970: 1_000_000)
+
     private func offlineState(awake: Bool = true) -> MacState {
         MacState(
             isAwakeHeld: awake,
             watchedApps: [WatchedApp(bundleID: "com.apple.dt.Xcode", displayName: "Xcode")],
             runningWatchedIDs: awake ? ["com.apple.dt.Xcode"] : [],
-            lastUpdated: Date(timeIntervalSince1970: 0),
+            lastUpdated: now.addingTimeInterval(-5),
             hasLostNetwork: true,
             connection: .none
         )
@@ -1295,7 +1309,7 @@ struct HotspotNotificationTests {
             isAwakeHeld: true,
             watchedApps: [WatchedApp(bundleID: "com.apple.dt.Xcode", displayName: "Xcode")],
             runningWatchedIDs: ["com.apple.dt.Xcode"],
-            lastUpdated: Date(timeIntervalSince1970: 0),
+            lastUpdated: now.addingTimeInterval(-5),
             hasLostNetwork: false,
             connection: .wifi
         )
@@ -1312,6 +1326,7 @@ struct HotspotNotificationTests {
             $0.hotspotNotifierClient.notify = { title, _ in
                 notified.withValue { $0.append(title) }
             }
+            $0.date = .constant(now)
         }
     }
 
@@ -1382,5 +1397,143 @@ struct HotspotNotificationTests {
         await store.finish()
 
         #expect(notified.value.isEmpty)
+    }
+}
+
+/// Noticing that the Mac has gone quiet.
+///
+/// This is the only warning possible for a Mac that sleeps — closing the lid
+/// sleeps it regardless of any assertion, and a sleeping Mac cannot report that
+/// it has stopped. Its last record stays in CloudKit, so fetches keep
+/// succeeding and returning the same stale snapshot: silence is the signal.
+@MainActor
+@Suite("Feature: Noticing when the Mac stops reporting")
+struct ContactLossTests {
+    private let now = Date(timeIntervalSince1970: 1_000_000)
+
+    private func state(reportedSecondsAgo seconds: TimeInterval) -> MacState {
+        MacState(
+            isAwakeHeld: true,
+            watchedApps: [WatchedApp(bundleID: "com.apple.dt.Xcode", displayName: "Xcode")],
+            runningWatchedIDs: ["com.apple.dt.Xcode"],
+            lastUpdated: now.addingTimeInterval(-seconds),
+            hasLostNetwork: false,
+            connection: .wifi
+        )
+    }
+
+    private func makeStore(
+        notified: LockIsolated<[String]>
+    ) -> TestStore<CompanionFeature.State, CompanionFeature.Action> {
+        TestStore(initialState: CompanionFeature.State()) {
+            CompanionFeature()
+        } withDependencies: {
+            $0.macStateTransportClient = .stub()
+            $0.hotspotNotifierClient = .noop
+            $0.hotspotNotifierClient.notify = { title, _ in
+                notified.withValue { $0.append(title) }
+            }
+            $0.date = .constant(now)
+        }
+    }
+
+    @Test("Scenario 1: a Mac reporting recently is in contact")
+    func recentReportIsFine() async {
+        let notified = LockIsolated<[String]>([])
+        let store = makeStore(notified: notified)
+        store.exhaustivity = .off
+
+        await store.send(.macStateReceived(state(reportedSecondsAgo: 30)))
+        await store.finish()
+
+        #expect(!store.state.hasLostContactWithMac)
+        #expect(notified.value.isEmpty)
+    }
+
+    @Test("Scenario 2: a Mac silent past the timeout is reported as lost")
+    func staleReportLosesContact() async {
+        // This is the closed-lid case: the Mac slept, so its record stopped
+        // changing while the fetch kept succeeding.
+        let notified = LockIsolated<[String]>([])
+        let store = makeStore(notified: notified)
+        store.exhaustivity = .off
+
+        await store.send(.macStateReceived(state(reportedSecondsAgo: 600)))
+        await store.finish()
+
+        #expect(store.state.hasLostContactWithMac)
+        #expect(notified.value == ["Lost contact with your Mac"])
+    }
+
+    @Test("Scenario 3: continued silence notifies only once")
+    func silenceNotifiesOnce() async {
+        let notified = LockIsolated<[String]>([])
+        let store = makeStore(notified: notified)
+        store.exhaustivity = .off
+
+        // The transport keeps re-delivering the same stale snapshot every poll.
+        await store.send(.macStateReceived(state(reportedSecondsAgo: 600)))
+        await store.send(.macStateReceived(state(reportedSecondsAgo: 600)))
+        await store.send(.macStateReceived(state(reportedSecondsAgo: 600)))
+        await store.finish()
+
+        #expect(notified.value.count == 1)
+    }
+
+    @Test("Scenario 4: the Mac coming back clears the lost-contact state")
+    func recoveryClearsContactLoss() async {
+        let notified = LockIsolated<[String]>([])
+        let store = makeStore(notified: notified)
+        store.exhaustivity = .off
+
+        await store.send(.macStateReceived(state(reportedSecondsAgo: 600)))
+        await store.send(.macStateReceived(state(reportedSecondsAgo: 5)))
+        await store.finish()
+
+        #expect(!store.state.hasLostContactWithMac)
+    }
+
+    @Test("Scenario 5: losing contact again after recovery notifies again")
+    func renotifiesAfterRecovery() async {
+        let notified = LockIsolated<[String]>([])
+        let store = makeStore(notified: notified)
+        store.exhaustivity = .off
+
+        await store.send(.macStateReceived(state(reportedSecondsAgo: 600)))
+        await store.send(.macStateReceived(state(reportedSecondsAgo: 5)))
+        await store.send(.macStateReceived(state(reportedSecondsAgo: 600)))
+        await store.finish()
+
+        #expect(notified.value.count == 2)
+    }
+
+    @Test("Scenario 6: a silent Mac is not also nagged about its hotspot")
+    func contactLossOutranksHotspotNudge() async {
+        // If the Mac has gone quiet we do not know its current network at all —
+        // the snapshot is minutes old. Sending both alerts would be two
+        // notifications for one event, one of them a guess.
+        let notified = LockIsolated<[String]>([])
+        let store = makeStore(notified: notified)
+        store.exhaustivity = .off
+
+        var stale = state(reportedSecondsAgo: 600)
+        stale.hasLostNetwork = true
+        stale.connection = .none
+        #expect(stale.shouldSuggestHotspot)
+
+        await store.send(.macStateReceived(stale))
+        await store.finish()
+
+        #expect(notified.value == ["Lost contact with your Mac"])
+    }
+
+    @Test("Scenario 7: nothing is claimed before the first report arrives")
+    func noContactLossBeforeFirstReport() {
+        // A fresh MacState has lastUpdated == .distantPast, which is "stale" by
+        // any measure — but the companion has simply not heard yet, and saying
+        // "lost contact" before ever making contact would be a lie.
+        var state = CompanionFeature.State()
+        state.hasConnected = false
+        #expect(!state.hasLostContact(asOf: now))
     }
 }

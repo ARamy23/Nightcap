@@ -25,6 +25,7 @@ struct CompanionScreenTests {
             // and the test passes or fails on timing rather than on behaviour.
             $0.macStateTransportClient = .stub(initial: macState)
             $0.hotspotNotifierClient = .noop
+            $0.date = .constant(Date(timeIntervalSince1970: 1_000_000))
         } operation: {
             var state = CompanionFeature.State()
             state.macState = macState
